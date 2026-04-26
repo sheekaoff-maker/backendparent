@@ -1,9 +1,7 @@
 [build]
-builder = "nixpacks"
-buildCommand = "npx prisma generate && npm run build"
+builder = "DOCKERFILE"
 
 [deploy]
-startCommand = "npx prisma migrate deploy && node dist/main.js"
-healthcheckPath = "/"
+healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"
