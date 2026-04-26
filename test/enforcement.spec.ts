@@ -6,7 +6,11 @@ import { XboxAdapter } from '../src/enforcement/adapters/xbox.adapter';
 import { NetworkGatewayAdapter } from '../src/enforcement/adapters/network-gateway.adapter';
 import { EnforcementService } from '../src/enforcement/enforcement.service';
 import { PrismaService } from '../src/common/prisma.service';
-import { Device, ControlMethod, DeviceType } from '@prisma/client';
+import { SessionsService } from '../src/sessions/sessions.service';
+import { RulesService } from '../src/rules/rules.service';
+import { Device, ControlMethod, DeviceType, SessionStatus } from '@prisma/client';
+
+const commandQueueMock: any = { enqueueCommand: jest.fn().mockResolvedValue(undefined) };
 
 describe('Adapter Selection', () => {
   it('should select ANDROID_AGENT for Android phone', () => {
@@ -56,7 +60,7 @@ describe('EnforcementService - getAdapter', () => {
 
   beforeEach(() => {
     prismaMock = {};
-    const android = new AndroidAgentAdapter(prismaMock as PrismaService);
+    const android = new AndroidAgentAdapter(prismaMock as PrismaService, commandQueueMock);
     const ios = new IosScreenTimeAdapter(prismaMock as PrismaService);
     const xbox = new XboxAdapter(prismaMock as PrismaService, { encrypt: jest.fn(), decrypt: jest.fn() } as any);
     const network = new NetworkGatewayAdapter(prismaMock as PrismaService);
@@ -99,7 +103,7 @@ describe('Android Command Creation', () => {
   it('should create block apps command via AndroidAgentAdapter', async () => {
     const createMock = jest.fn().mockResolvedValue({ id: 'cmd1' });
     const prismaMock = { command: { create: createMock } } as unknown as PrismaService;
-    const adapter = new AndroidAgentAdapter(prismaMock);
+    const adapter = new AndroidAgentAdapter(prismaMock, commandQueueMock);
 
     const device = { id: 'dev1', status: 'ONLINE', lastSeen: new Date() } as Device;
     const result = await adapter.blockDevice(device, 'test reason');
@@ -116,7 +120,7 @@ describe('Android Command Creation', () => {
   it('should create sync rules command via AndroidAgentAdapter', async () => {
     const createMock = jest.fn().mockResolvedValue({ id: 'cmd2' });
     const prismaMock = { command: { create: createMock } } as unknown as PrismaService;
-    const adapter = new AndroidAgentAdapter(prismaMock);
+    const adapter = new AndroidAgentAdapter(prismaMock, commandQueueMock);
 
     const device = { id: 'dev1', status: 'ONLINE', lastSeen: new Date() } as Device;
     const rules = { dailyLimit: 60 };
@@ -197,7 +201,7 @@ describe('Offline Unsupported Console Behavior', () => {
       device: { update: jest.fn().mockResolvedValue({}) },
     } as unknown as PrismaService;
     const mockAdapter = new MockAdapter();
-    const androidAdapter = new AndroidAgentAdapter(prismaMock);
+    const androidAdapter = new AndroidAgentAdapter(prismaMock, commandQueueMock);
     const iosAdapter = new IosScreenTimeAdapter(prismaMock);
     const xboxAdapter = new XboxAdapter(prismaMock, { encrypt: jest.fn(), decrypt: jest.fn() } as any);
     const networkAdapter = new NetworkGatewayAdapter(prismaMock);

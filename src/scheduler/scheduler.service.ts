@@ -82,11 +82,29 @@ export class SchedulerService {
       session.id,
     );
 
+    // Auto-block GAMING category for the child so DNS keeps blocking online games
+    // even after the session ends. Parent must manually unblock to give more time.
+    try {
+      await this.prisma.categoryBlock.upsert({
+        where: { childId_category: { childId: session.childId, category: 'GAMING' } },
+        update: { active: true, reason: `Session ${session.id} expired` },
+        create: {
+          childId: session.childId,
+          category: 'GAMING',
+          active: true,
+          reason: `Session ${session.id} expired`,
+        },
+      });
+      this.logger.log(`GAMING category auto-blocked for child ${session.childId}`);
+    } catch (err: any) {
+      this.logger.warn(`Failed to auto-block GAMING: ${err.message}`);
+    }
+
     await this.notificationsService.create({
       userId: session.parentId,
       type: 'TIME_ENDED',
       title: 'Screen Time Ended',
-      message: `Session expired on device. ${result.data?.offlineLimitation ? 'Offline games cannot be killed directly.' : ''}`,
+      message: `Session expired on device. Online gaming has been auto-blocked. ${result.data?.offlineLimitation ? 'Note: offline games cannot be killed directly — see device-specific guides.' : ''}`,
       deviceId: session.deviceId,
       childId: session.childId,
       sessionId: session.id,
@@ -97,7 +115,7 @@ export class SchedulerService {
       action: 'SESSION_EXPIRED',
       entity: 'session',
       entityId: session.id,
-      details: `Device: ${session.deviceId}, offlineLimitation: ${!!result.data?.offlineLimitation}`,
+      details: `Device: ${session.deviceId}, offlineLimitation: ${!!result.data?.offlineLimitation}, gamingCategoryBlocked: true`,
     });
   }
 
