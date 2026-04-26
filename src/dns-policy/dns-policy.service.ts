@@ -5,14 +5,44 @@ import { DeviceStatus } from '@prisma/client';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 
+/**
+ * STRICT MODE blocklist — DNS-over-HTTPS / well-known public resolvers that a
+ * child could point their browser/device to in order to bypass our filtering.
+ * When STRICT_MODE=true (env), we BLOCK these unconditionally for every device
+ * the parent has registered. They are NOT in the seed-domains category list so
+ * we keep this hardcoded for predictability.
+ */
+export const STRICT_MODE_DOH_DOMAINS = [
+  'dns.google',
+  'dns.google.com',
+  'cloudflare-dns.com',
+  'one.one.one.one',
+  'doh.opendns.com',
+  'dns.quad9.net',
+  'doh.cleanbrowsing.org',
+  'nextdns.io',
+  'dns.nextdns.io',
+  'doh.dns.sb',
+  'dns.adguard.com',
+  'dns.adguard-dns.com',
+  'mozilla.cloudflare-dns.com',
+  'chrome.cloudflare-dns.com',
+];
+
 @Injectable()
 export class DnsPolicyService {
   private readonly logger = new Logger(DnsPolicyService.name);
+  private readonly strictMode = (process.env.STRICT_MODE || 'false').toLowerCase() === 'true';
 
   constructor(
     private prisma: PrismaService,
     @Inject(CACHE_MANAGER) private cacheManager: Cache,
   ) {}
+
+  private isStrictDohDomain(domain: string): boolean {
+    const lower = domain.toLowerCase().replace(/\.$/, '');
+    return STRICT_MODE_DOH_DOMAINS.some((d) => lower === d || lower.endsWith('.' + d));
+  }
 
   async checkPolicy(dto: CheckDnsPolicyDto): Promise<DnsPolicyResponseDto> {
     const { sourceIp, domain } = dto;
@@ -49,6 +79,20 @@ export class DnsPolicyService {
       await this.cacheManager.set(cacheKey, allowResponse, 30000);
       await this.logQuery(domain, sourceIp, 'ALLOW');
       return allowResponse;
+    }
+
+    // 1.4. STRICT MODE — block well-known DoH endpoints first (anti-bypass)
+    if (this.strictMode && this.isStrictDohDomain(domain)) {
+      const result: DnsPolicyResponseDto = {
+        action: 'BLOCK',
+        blockIp: '0.0.0.0',
+        reason: 'STRICT_MODE_DOH',
+        category: null,
+      };
+      await this.cacheManager.set(cacheKey, result, 30000);
+      await this.logQuery(domain, sourceIp, 'BLOCK', device.id);
+      this.updateDnsSeen(device.id);
+      return result;
     }
 
     // 1.5. FULL INTERNET LOCK — blocks every domain regardless of category
@@ -132,11 +176,32 @@ export class DnsPolicyService {
       return result;
     }
 
-    // 5. Allow
+    // 5. Allow — but log domain as unknown so admins can categorise it later
     await this.cacheManager.set(cacheKey, allowResponse, 30000);
-    await this.logQuery(domain, sourceIp, 'ALLOW');
+    await this.logQuery(domain, sourceIp, 'ALLOW', device.id);
     this.updateDnsSeen(device.id);
+    this.recordUnknownDomain(domain, sourceIp, device.id);
     return allowResponse;
+  }
+
+  /**
+   * Upsert into UnknownDomainLog so the admin endpoint can later classify the
+   * domain into the right category. Heuristic: keep last 30 days only via the
+   * lastSeenAt index — old rows can be pruned by a future cron.
+   */
+  private async recordUnknownDomain(domain: string, sourceIp: string, deviceId: string) {
+    const lower = domain.toLowerCase().replace(/\.$/, '');
+    if (!lower || lower.length > 253) return;
+    try {
+      await this.prisma.unknownDomainLog.upsert({
+        where: { domain_device_unique: { domain: lower, deviceId } },
+        update: { count: { increment: 1 }, lastSeenAt: new Date(), sourceIp },
+        create: { domain: lower, sourceIp, deviceId },
+      });
+    } catch (err: any) {
+      // unique-conflict races are fine; ignore
+      this.logger.debug(`unknown-domain log skip: ${err.message}`);
+    }
   }
 
   private async findBlockedDomain(domain: string) {
@@ -157,7 +222,7 @@ export class DnsPolicyService {
     return match;
   }
 
-  private async logQuery(domain: string, sourceIp: string, action: string) {
+  private async logQuery(domain: string, sourceIp: string, action: string, _deviceId?: string) {
     try {
       await this.prisma.dnsQueryLog.create({
         data: { domain, sourceIp, action },

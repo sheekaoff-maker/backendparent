@@ -88,4 +88,32 @@ export class CategoriesService implements OnModuleInit {
   async listCategoryBlocks(childId: string) {
     return this.prisma.categoryBlock.findMany({ where: { childId } });
   }
+
+  /**
+   * Unknown-domain learning system: list domains seen by our DNS that are NOT
+   * yet in any blocklist, sorted by hit-count so admins can categorise the noisy
+   * ones first.
+   */
+  async listUnknownDomains(opts: { limit?: number; classified?: boolean } = {}) {
+    const limit = Math.min(Math.max(opts.limit ?? 100, 1), 500);
+    return this.prisma.unknownDomainLog.findMany({
+      where: opts.classified === undefined ? {} : { classified: opts.classified },
+      orderBy: [{ count: 'desc' }, { lastSeenAt: 'desc' }],
+      take: limit,
+    });
+  }
+
+  /**
+   * Classify an unknown domain into a real BlockedDomain entry. Marks every
+   * matching unknown-log row as classified so it stops showing up in the queue.
+   */
+  async classifyUnknownDomain(domain: string, category: BlockCategory, wildcard = true) {
+    const lower = domain.toLowerCase();
+    const blocked = await this.addDomain(lower, category, wildcard);
+    await this.prisma.unknownDomainLog.updateMany({
+      where: { domain: lower },
+      data: { classified: true, suggestedCategory: category },
+    });
+    return blocked;
+  }
 }

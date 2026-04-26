@@ -23,6 +23,7 @@ import { HealthModule } from './health/health.module';
 import { CategoriesModule } from './categories/categories.module';
 import { PlatformSupportModule } from './platform-support/platform-support.module';
 import { OfflineControlModule } from './offline-control/offline-control.module';
+import { ProtectionModule } from './protection/protection.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { OfflineControlModule } from './offline-control/offline-control.module';
     CategoriesModule,
     PlatformSupportModule,
     OfflineControlModule,
+    ProtectionModule,
     AuthModule,
     ParentsModule,
     ChildrenModule,

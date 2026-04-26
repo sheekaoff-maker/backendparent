@@ -88,6 +88,67 @@ A scheduled job (`@Cron(EVERY_5_MINUTES)`) flags a device as `protectionStatus =
 
 This means the child likely changed DNS, started a VPN, or switched to a hotspot. The parent gets pinged and can act on it.
 
+## Protection Score & Insights
+
+Per-device 0-100 score (`GET /devices/:id/protection-score`) computed from four buckets:
+
+| Bucket | Max | Signals |
+|---|---|---|
+| **DNS visibility** | 30 | `dnsConfigured`, recency of `lastDnsSeenAt` |
+| **Lock state** | 15 | `internetLocked`, `blockingMode` |
+| **Offline setup** | 30 | `offlineSetupVerified`, completed checklist items |
+| **Bypass history** | 25 | `protectionStatus`, `bypassAttempts` |
+
+Levels: **HIGH ≥ 80**, **MEDIUM 50-79**, **LOW < 50**.
+
+`GET /devices/:id/insights` returns the full dashboard payload (score, breakdown, status, last DNS hit, top domains 7d, plain-English recommendations).
+
+## Smart Auto-Block (per-device)
+
+`POST /devices/:id/schedule` accepts:
+
+```json
+{
+  "dailyLimitMinutes": 120,
+  "bedtimeStart": "21:00",
+  "bedtimeEnd": "07:00",
+  "autoBlockEnabled": true
+}
+```
+
+A scheduler cron (`@Cron(EVERY_MINUTE)`) enforces:
+
+- **Bedtime**: while `now ∈ [bedtimeStart, bedtimeEnd)` (handles midnight wrap), the device is auto-`internetLocked` with reason `Bedtime …`. Auto-unlock when the window ends.
+- **Daily limit**: if today's session minutes for the device ≥ `dailyLimitMinutes`, GAMING category is auto-blocked for that child.
+
+Both actions are logged in audit + create notifications. Parent can override via the existing `/devices/:id/internet-unlock`.
+
+## Anti-bypass — escalation
+
+The bypass detection cron now increments `bypassAttempts` and **escalates to `protectionStatus = COMPROMISED`** after 3 detections. A `REPEATED_BYPASS` notification fires on escalation; a separate `PROTECTION_LOW` notification fires (de-duped per 24h) whenever score drops below 50.
+
+## Domain Learning System
+
+Every DNS query for a known device whose domain is **not** in a blocklist is upserted into `UnknownDomainLog (domain, deviceId)` with a hit-counter.
+
+- `GET /admin/domains/unknown?limit=100&classified=false` — list, sorted by hits
+- `POST /admin/domains/classify { domain, category, wildcard? }` — promotes the domain into `BlockedDomain` and marks every matching unknown row as classified
+
+Use this to grow the blocklists empirically from real traffic instead of guessing.
+
+## STRICT MODE — anti-DoH / anti-VPN basic
+
+Set env `STRICT_MODE=true` to make the DNS policy block well-known DNS-over-HTTPS / public-resolver endpoints **before** any other rule:
+
+```
+dns.google, dns.google.com, cloudflare-dns.com, one.one.one.one,
+doh.opendns.com, dns.quad9.net, doh.cleanbrowsing.org, nextdns.io,
+dns.nextdns.io, doh.dns.sb, dns.adguard.com, dns.adguard-dns.com,
+mozilla.cloudflare-dns.com, chrome.cloudflare-dns.com
+```
+
+Any subdomain of these is matched too. Reason returned: `STRICT_MODE_DOH`. Parents can disable by unsetting the env.
+
 
 
 ### Android (Agent App)
@@ -239,6 +300,11 @@ http://localhost:3000/api/docs
 | `/devices/:id/offline-control/setup-status` | POST | Mark vendor setup as completed/verified |
 | `/devices/:id/offline-control/status` | GET | Honest support + checklist + recommendedNextStep |
 | `/devices/:id/offline-control/checklist` | POST | Update checklist fields (pinEnabled, childAccountLinked, etc.) |
+| `/devices/:id/protection-score` | GET | 0-100 protection score with HIGH/MEDIUM/LOW level + breakdown |
+| `/devices/:id/insights` | GET | Dashboard payload: score, status, top domains, recommendations |
+| `/devices/:id/schedule` | GET / POST | Auto-block schedule (dailyLimitMinutes, bedtimeStart, bedtimeEnd, autoBlockEnabled) |
+| `/admin/domains/unknown` | GET | Domains seen by DNS that are not yet in any blocklist (sorted by hit-count) |
+| `/admin/domains/classify` | POST | Classify an unknown domain into a real BlockedDomain |
 | `/admin/blocklists/domains` | GET / POST | List or add blocked domains (filter by `?category=GAMING`) |
 | `/admin/blocklists/domains/bulk` | POST | Bulk-import blocked domains |
 | `/admin/blocklists/domains/:id` | DELETE | Remove a blocked domain |

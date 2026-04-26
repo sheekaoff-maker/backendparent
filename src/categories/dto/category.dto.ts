@@ -55,3 +55,18 @@ export class SetCategoryBlockDto {
   @IsString()
   reason?: string;
 }
+
+export class ClassifyDomainDto {
+  @ApiProperty({ example: 'fortnite-cdn.com' })
+  @IsString()
+  domain: string;
+
+  @ApiProperty({ enum: ['GAMING', 'STREAMING', 'SOCIAL', 'ADULT', 'CUSTOM'] })
+  @IsEnum(['GAMING', 'STREAMING', 'SOCIAL', 'ADULT', 'CUSTOM'])
+  category: BlockCategory;
+
+  @ApiProperty({ required: false, default: true })
+  @IsOptional()
+  @IsBoolean()
+  wildcard?: boolean;
+}

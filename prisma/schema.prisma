@@ -92,6 +92,9 @@ enum NotificationType {
   PARENT_DENIED
   POSSIBLE_DNS_BYPASS
   OFFLINE_SETUP_INCOMPLETE
+  PROTECTION_LOW
+  REPEATED_BYPASS
+  DEVICE_DISCONNECTED
 }
 
 enum SubscriptionPlan {
@@ -182,6 +185,15 @@ model Device {
   internetLockedReason String?  @map("internet_locked_reason")
   internetLockedAt DateTime?    @map("internet_locked_at")
   protectionStatus ProtectionStatus @default(NORMAL) @map("protection_status")
+  protectionScore  Int      @default(100) @map("protection_score")
+  lastBypassDetectedAt DateTime? @map("last_bypass_detected_at")
+  bypassAttempts   Int      @default(0) @map("bypass_attempts")
+  typicalActiveHours Json?  @map("typical_active_hours")
+  dnsQueryPatternHash String? @map("dns_query_pattern_hash")
+  dailyLimitMinutes Int?   @map("daily_limit_minutes")
+  bedtimeStart     String? @map("bedtime_start")
+  bedtimeEnd       String? @map("bedtime_end")
+  autoBlockEnabled Boolean @default(false) @map("auto_block_enabled")
   offlineControlEnabled Boolean @default(false) @map("offline_control_enabled")
   offlineControlMethod  String? @map("offline_control_method")
   offlineSetupCompletedAt DateTime? @map("offline_setup_completed_at")
@@ -200,6 +212,23 @@ model Device {
   offlineChecklist OfflineControlChecklist?
 
   @@map("devices")
+}
+
+model UnknownDomainLog {
+  id                String         @id @default(cuid())
+  domain            String
+  sourceIp          String         @map("source_ip")
+  deviceId          String?        @map("device_id")
+  count             Int            @default(1)
+  firstSeenAt       DateTime       @default(now()) @map("first_seen_at")
+  lastSeenAt        DateTime       @default(now()) @map("last_seen_at")
+  suggestedCategory BlockCategory? @map("suggested_category")
+  classified        Boolean        @default(false)
+
+  @@unique([domain, deviceId], name: "domain_device_unique")
+  @@index([classified])
+  @@index([lastSeenAt])
+  @@map("unknown_domain_logs")
 }
 
 model OfflineControlChecklist {
