@@ -41,4 +41,32 @@ export class DevicesController {
   async remove(@CurrentUser('sub') parentId: string, @Param('id') id: string) {
     await this.devicesService.remove(parentId, id);
   }
+
+  @Post(':id/internet-lock')
+  @ApiOperation({
+    summary: 'FULL INTERNET LOCK — block ALL online traffic for this device',
+    description:
+      'Sets blockingMode=FULL_INTERNET_LOCK so the DNS server returns BLOCK for every domain. ' +
+      'NOTE: This only blocks online access. Offline single-player games on PlayStation / Nintendo / ' +
+      'Steam Deck / Smart TV cannot be stopped by us.',
+  })
+  async lockInternet(
+    @CurrentUser('sub') parentId: string,
+    @Param('id') id: string,
+    @Body() body: { reason?: string } = {},
+  ) {
+    return this.devicesService.lockInternet(parentId, id, body?.reason);
+  }
+
+  @Post(':id/internet-unlock')
+  @ApiOperation({ summary: 'Restore normal policy (GAMING_ONLY mode)' })
+  async unlockInternet(@CurrentUser('sub') parentId: string, @Param('id') id: string) {
+    return this.devicesService.unlockInternet(parentId, id);
+  }
+
+  @Get(':id/network-status')
+  @ApiOperation({ summary: 'Get current blocking mode + last DNS-seen info for a device' })
+  async networkStatus(@CurrentUser('sub') parentId: string, @Param('id') id: string) {
+    return this.devicesService.getNetworkStatus(parentId, id);
+  }
 }

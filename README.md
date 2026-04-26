@@ -212,6 +212,9 @@ http://localhost:3000/api/docs
 | `/oauth/microsoft/callback` | GET | OAuth callback |
 | `/oauth/microsoft/refresh` | POST | Refresh OAuth token |
 | `/dns/policy/check` | GET | Check DNS policy (sourceIp + domain) → ALLOW/BLOCK |
+| `/devices/:id/internet-lock` | POST | **FULL INTERNET LOCK** for a device — blocks ALL online traffic |
+| `/devices/:id/internet-unlock` | POST | Restore normal policy (GAMING_ONLY) |
+| `/devices/:id/network-status` | GET | Current blockingMode + last DNS-seen + offline-control note |
 | `/admin/blocklists/domains` | GET / POST | List or add blocked domains (filter by `?category=GAMING`) |
 | `/admin/blocklists/domains/bulk` | POST | Bulk-import blocked domains |
 | `/admin/blocklists/domains/:id` | DELETE | Remove a blocked domain |

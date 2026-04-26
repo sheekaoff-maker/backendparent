@@ -106,6 +106,11 @@ enum BlockCategory {
   CUSTOM
 }
 
+enum BlockingMode {
+  GAMING_ONLY
+  FULL_INTERNET_LOCK
+}
+
 model User {
   id             String    @id @default(uuid())
   email          String    @unique
@@ -164,6 +169,10 @@ model Device {
   dnsSourceIp    String?        @map("dns_source_ip")
   dnsConfigured  Boolean        @default(false) @map("dns_configured")
   lastDnsSeenAt  DateTime?      @map("last_dns_seen_at")
+  blockingMode   BlockingMode   @default(GAMING_ONLY) @map("blocking_mode")
+  internetLocked Boolean        @default(false) @map("internet_locked")
+  internetLockedReason String?  @map("internet_locked_reason")
+  internetLockedAt DateTime?    @map("internet_locked_at")
   gatewayId      String?        @map("gateway_id")
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt

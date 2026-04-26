@@ -51,6 +51,20 @@ export class DnsPolicyService {
       return allowResponse;
     }
 
+    // 1.5. FULL INTERNET LOCK — blocks every domain regardless of category
+    if (device.internetLocked) {
+      const result: DnsPolicyResponseDto = {
+        action: 'BLOCK',
+        blockIp: '0.0.0.0',
+        reason: 'FULL_INTERNET_LOCK',
+        category: null,
+      };
+      await this.cacheManager.set(cacheKey, result, 30000);
+      await this.logQuery(domain, sourceIp, 'BLOCK');
+      this.updateDnsSeen(device.id);
+      return result;
+    }
+
     // 2. If device is manually blocked
     if (device.status === DeviceStatus.BLOCKED) {
       const result = blockResponse('MANUAL_BLOCK');

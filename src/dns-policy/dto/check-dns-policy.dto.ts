@@ -33,11 +33,11 @@ export class DnsPolicyResponseDto {
 
   @ApiProperty({
     description: 'Reason for the action',
-    enum: ['TIME_LIMIT_EXCEEDED', 'DOMAIN_BLOCKED', 'CATEGORY_BLOCKED', 'MANUAL_BLOCK', 'SESSION_VIOLATED', null],
-    example: 'CATEGORY_BLOCKED',
+    enum: ['FULL_INTERNET_LOCK', 'TIME_LIMIT_EXCEEDED', 'DOMAIN_BLOCKED', 'CATEGORY_BLOCKED', 'GAMING_BLOCKED', 'MANUAL_BLOCK', 'SESSION_VIOLATED', null],
+    example: 'FULL_INTERNET_LOCK',
     required: false,
   })
-  reason: 'TIME_LIMIT_EXCEEDED' | 'DOMAIN_BLOCKED' | 'CATEGORY_BLOCKED' | 'MANUAL_BLOCK' | 'SESSION_VIOLATED' | null;
+  reason: 'FULL_INTERNET_LOCK' | 'TIME_LIMIT_EXCEEDED' | 'DOMAIN_BLOCKED' | 'CATEGORY_BLOCKED' | 'GAMING_BLOCKED' | 'MANUAL_BLOCK' | 'SESSION_VIOLATED' | null;
 
   @ApiProperty({
     description: 'Category that triggered the block (when reason=CATEGORY_BLOCKED)',
