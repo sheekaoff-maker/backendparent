@@ -19,11 +19,13 @@ import { SchedulerModule } from './scheduler/scheduler.module';
 import { AuditModule } from './audit/audit.module';
 import { QueueModule } from './queue/queue.module';
 import { DnsPolicyModule } from './dns-policy/dns-policy.module';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
+    HealthModule,
     CommonModule,
     QueueModule,
     DnsPolicyModule,
