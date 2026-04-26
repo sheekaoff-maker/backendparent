@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/commo
 import { PrismaService } from '../common/prisma.service';
 import { CreateDeviceDto, UpdateDeviceDto } from './dto/device.dto';
 import { DeviceStatus } from '@prisma/client';
+import { getPlatformSupport } from '../platform-support/platform-support.matrix';
 
 @Injectable()
 export class DevicesService {
@@ -24,10 +25,11 @@ export class DevicesService {
   }
 
   async findAll(parentId: string) {
-    return this.prisma.device.findMany({
+    const devices = await this.prisma.device.findMany({
       where: { parentId },
       include: { child: true },
     });
+    return devices.map((d) => this.withSupport(d));
   }
 
   async findOne(parentId: string, id: string) {
@@ -37,7 +39,22 @@ export class DevicesService {
     });
     if (!device) throw new NotFoundException('Device not found');
     if (device.parentId !== parentId) throw new ForbiddenException('Not your device');
-    return device;
+    return this.withSupport(device);
+  }
+
+  /**
+   * Attach honest platform-support metadata to a device payload so the parent app
+   * can render correct UI (warnings for unsupported offline games, etc).
+   */
+  private withSupport<T extends { type: any }>(device: T) {
+    const support = getPlatformSupport(device.type);
+    return {
+      ...device,
+      offlineControlSupported: support.offlineControlSupported,
+      offlineControlMethod: support.offlineControlMethod,
+      recommendedControlMethod: support.recommendedControlMethod,
+      supportNotes: support.notes,
+    };
   }
 
   async findById(id: string) {

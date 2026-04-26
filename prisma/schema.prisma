@@ -21,6 +21,9 @@ enum DeviceType {
   IPAD
   XBOX
   PLAYSTATION
+  NINTENDO
+  STEAM_DECK
+  PC
   SMART_TV
   STREAMING_BOX
   OTHER
@@ -31,6 +34,10 @@ enum ControlMethod {
   IOS_SCREEN_TIME
   XBOX_ADAPTER
   NETWORK_GATEWAY
+  DNS_FILTERING
+  ROUTER_GATEWAY
+  XBOX_ACCOUNT
+  OFFICIAL_PARENTAL_GUIDE
   MOCK
 }
 
@@ -91,6 +98,14 @@ enum SubscriptionPlan {
   FAMILY
 }
 
+enum BlockCategory {
+  GAMING
+  STREAMING
+  SOCIAL
+  ADULT
+  CUSTOM
+}
+
 model User {
   id             String    @id @default(uuid())
   email          String    @unique
@@ -129,6 +144,7 @@ model Child {
   rules         Rule[]
   sessions      Session[]
   usageLogs     UsageLog[]
+  categoryBlocks CategoryBlock[]
 
   @@map("children")
 }
@@ -325,12 +341,41 @@ model AuditLog {
 }
 
 model BlockedDomain {
-  id        String   @id @default(cuid())
-  domain    String   @unique
-  category  String?
-  createdAt DateTime @default(now())
+  id        String         @id @default(cuid())
+  domain    String         @unique
+  category  BlockCategory?
+  wildcard  Boolean        @default(false)
+  createdAt DateTime       @default(now())
 
+  @@index([category])
   @@map("blocked_domains")
+}
+
+model CategoryBlock {
+  id        String        @id @default(cuid())
+  childId   String        @map("child_id")
+  category  BlockCategory
+  reason    String?
+  active    Boolean       @default(true)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  child     Child         @relation(fields: [childId], references: [id], onDelete: Cascade)
+
+  @@unique([childId, category])
+  @@map("category_blocks")
+}
+
+model SetupGuide {
+  id        String   @id @default(cuid())
+  platform  String   @unique
+  title     String
+  steps     Json
+  videoUrl  String?  @map("video_url")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("setup_guides")
 }
 
 model DnsQueryLog {

@@ -20,6 +20,8 @@ import { AuditModule } from './audit/audit.module';
 import { QueueModule } from './queue/queue.module';
 import { DnsPolicyModule } from './dns-policy/dns-policy.module';
 import { HealthModule } from './health/health.module';
+import { CategoriesModule } from './categories/categories.module';
+import { PlatformSupportModule } from './platform-support/platform-support.module';
 
 @Module({
   imports: [
@@ -29,6 +31,8 @@ import { HealthModule } from './health/health.module';
     CommonModule,
     QueueModule,
     DnsPolicyModule,
+    CategoriesModule,
+    PlatformSupportModule,
     AuthModule,
     ParentsModule,
     ChildrenModule,

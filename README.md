@@ -39,8 +39,36 @@ A production-ready backend for a smart parental control system built with **Nest
 | **Audit** | Audit log for all enforcement and administrative actions |
 | **Queue** | BullMQ command delivery queue with Redis, retry logic, and status tracking |
 | **DnsPolicy** | DNS filtering: real-time ALLOW/BLOCK decisions for domain queries, Redis-cached (30s), logs all queries |
+| **Categories** | Block-by-category engine (GAMING / STREAMING / SOCIAL / ADULT / CUSTOM) with wildcard domains + per-child category blocks |
+| **PlatformSupport** | Honest device-support matrix + step-by-step setup guides for PlayStation / Nintendo / Xbox / Smart TV / Router |
 
-## Platform Support & Limitations
+## What This Backend Can And CANNOT Do (Reality Check)
+
+This backend is **honest** about platform limits. The frontend should display these to parents.
+
+### ✅ What we CAN do globally (via DNS filtering):
+- Block ALL online gaming traffic on **any** device on the home network: PSN, Xbox Live, Nintendo eShop, Steam, Epic, Battle.net, Riot, Discord, Twitch, Roblox, Fortnite, etc.
+- Block streaming (YouTube, Netflix, TikTok, etc.) and social (Instagram, Snapchat, etc.) the same way.
+- Per-child category blocks (GAMING / STREAMING / SOCIAL / ADULT / CUSTOM) — see `/admin/blocklists/children/:childId/categories`.
+
+### ✅ What we CAN do per device:
+| Platform | Online block | Offline block | How |
+|----------|:-:|:-:|---|
+| Android | ✅ | ✅ | Child agent app (Device Admin) |
+| iOS / iPad | ✅ | ✅ | Apple Family Controls entitlement |
+| Xbox | ✅ | ✅ | Microsoft Family OAuth |
+
+### ❌ What we CANNOT do (no agent / no API):
+| Platform | Online block | Offline block | What parents must do |
+|----------|:-:|:-:|---|
+| PlayStation | ✅ via DNS | ❌ | Use Sony **PSN Family** parental controls (we provide a step-by-step guide via `/platform-support/guides/PLAYSTATION`) |
+| Nintendo Switch | ✅ via DNS | ❌ | Use the **Nintendo Switch Parental Controls** mobile app (guide at `/platform-support/guides/NINTENDO`) |
+| Smart TV | ✅ via DNS | ❌ | Set DNS at the router so the TV is forced through our filter |
+| Steam Deck / PC | ✅ via DNS | ❌ | Use **Steam Family View** + Windows/macOS parental controls |
+
+We will **never claim** to stop a child playing an offline single-player game on a console where the platform vendor does not give us an API. The honest path is DNS-block-online + redirect-the-parent-to-the-vendor-tools.
+
+
 
 ### Android (Agent App)
 - **Method**: Child-side agent app with Device Admin privileges
@@ -184,6 +212,14 @@ http://localhost:3000/api/docs
 | `/oauth/microsoft/callback` | GET | OAuth callback |
 | `/oauth/microsoft/refresh` | POST | Refresh OAuth token |
 | `/dns/policy/check` | GET | Check DNS policy (sourceIp + domain) → ALLOW/BLOCK |
+| `/admin/blocklists/domains` | GET / POST | List or add blocked domains (filter by `?category=GAMING`) |
+| `/admin/blocklists/domains/bulk` | POST | Bulk-import blocked domains |
+| `/admin/blocklists/domains/:id` | DELETE | Remove a blocked domain |
+| `/admin/blocklists/children/:childId/categories` | GET / POST | List or set category blocks for a child |
+| `/platform-support/matrix` | GET | Full device-type support matrix (online/offline) |
+| `/platform-support/matrix/:deviceType` | GET | Support info for one device type |
+| `/platform-support/guides` | GET | All parental-control setup guides |
+| `/platform-support/guides/:platform` | GET | Setup guide for PLAYSTATION / NINTENDO / XBOX / SMART_TV / ROUTER |
 
 ## Testing
 

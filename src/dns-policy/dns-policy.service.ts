@@ -87,9 +87,30 @@ export class DnsPolicyService {
       }
     }
 
-    // 4. Check blocked domains
+    // 4. Check blocked domains (exact, parent-domain, and wildcard match)
     const blockedDomain = await this.findBlockedDomain(domain);
     if (blockedDomain) {
+      // 4a. If domain is in a category, check if child has that category blocked
+      if (blockedDomain.category && device.childId) {
+        const categoryBlock = await this.prisma.categoryBlock.findUnique({
+          where: {
+            childId_category: { childId: device.childId, category: blockedDomain.category },
+          },
+        });
+        if (categoryBlock?.active) {
+          const result: DnsPolicyResponseDto = {
+            action: 'BLOCK',
+            blockIp: '0.0.0.0',
+            reason: 'CATEGORY_BLOCKED',
+            category: blockedDomain.category,
+          };
+          await this.cacheManager.set(cacheKey, result, 30000);
+          await this.logQuery(domain, sourceIp, 'BLOCK');
+          this.updateDnsSeen(device.id);
+          return result;
+        }
+      }
+      // 4b. Otherwise treat as global domain block
       const result = blockResponse('DOMAIN_BLOCKED');
       await this.cacheManager.set(cacheKey, result, 30000);
       await this.logQuery(domain, sourceIp, 'BLOCK');
@@ -105,20 +126,21 @@ export class DnsPolicyService {
   }
 
   private async findBlockedDomain(domain: string) {
-    // Check exact match and parent domain matches
-    const parts = domain.split('.');
-    const candidates: string[] = [domain];
+    const lower = domain.toLowerCase().replace(/\.$/, '');
 
-    // e.g. for "www.youtube.com" also check "youtube.com"
-    for (let i = 1; i < parts.length - 1; i++) {
+    // Build candidate list: exact + every parent suffix
+    // e.g. www.api.youtube.com → [www.api.youtube.com, api.youtube.com, youtube.com]
+    const parts = lower.split('.');
+    const candidates: string[] = [];
+    for (let i = 0; i < parts.length - 1; i++) {
       candidates.push(parts.slice(i).join('.'));
     }
 
-    return this.prisma.blockedDomain.findFirst({
-      where: {
-        domain: { in: candidates },
-      },
+    // First, exact match (works for both wildcard and non-wildcard entries)
+    const match = await this.prisma.blockedDomain.findFirst({
+      where: { domain: { in: candidates } },
     });
+    return match;
   }
 
   private async logQuery(domain: string, sourceIp: string, action: string) {
