@@ -1,0 +1,362 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  PARENT
+  CHILD_DEVICE
+  GATEWAY
+}
+
+enum DeviceType {
+  ANDROID_PHONE
+  ANDROID_TABLET
+  IPHONE
+  IPAD
+  XBOX
+  PLAYSTATION
+  SMART_TV
+  STREAMING_BOX
+  OTHER
+}
+
+enum ControlMethod {
+  ANDROID_AGENT
+  IOS_SCREEN_TIME
+  XBOX_ADAPTER
+  NETWORK_GATEWAY
+  MOCK
+}
+
+enum DeviceStatus {
+  ONLINE
+  OFFLINE
+  BLOCKED
+  PAUSED
+}
+
+enum SessionStatus {
+  ACTIVE
+  PAUSED
+  STOPPED
+  EXPIRED
+  VIOLATED
+}
+
+enum RuleType {
+  DAILY_LIMIT
+  BEDTIME
+  SCHOOL_TIME
+  WEEKEND_MODE
+  REWARD_EXTRA_TIME
+  BLOCKED_APPS
+  BLOCKED_CATEGORIES
+}
+
+enum CommandType {
+  BLOCK_APPS
+  UNBLOCK_APPS
+  LOCK_DEVICE
+  START_VPN_DNS
+  STOP_VPN_DNS
+  REPORT_USAGE
+  SYNC_RULES
+}
+
+enum CommandStatus {
+  PENDING
+  DELIVERED
+  ACKNOWLEDGED
+  FAILED
+}
+
+enum NotificationType {
+  TIME_10_MIN_LEFT
+  TIME_ENDED
+  DEVICE_BLOCKED
+  CHILD_REQUEST_MORE_TIME
+  PARENT_APPROVED
+  PARENT_DENIED
+}
+
+enum SubscriptionPlan {
+  FREE
+  PREMIUM
+  FAMILY
+}
+
+model User {
+  id             String    @id @default(uuid())
+  email          String    @unique
+  passwordHash   String
+  role           Role      @default(PARENT)
+  firstName      String?
+  lastName       String?
+  refreshToken   String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  children       Child[]
+  devices        Device[]
+  sessions       Session[]
+  gateways       Gateway[]
+  oauthAccounts  OAuthAccount[]
+  notifications  NotificationEvent[]
+  auditLogs      AuditLog[]
+  subscription   Subscription?
+
+  @@map("users")
+}
+
+model Child {
+  id            String   @id @default(uuid())
+  parentId      String   @map("parent_id")
+  name          String
+  avatar        String?
+  age           Int?
+  defaultLimit  Int?     @map("default_limit_minutes")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  parent        User     @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  devices       Device[]
+  rules         Rule[]
+  sessions      Session[]
+  usageLogs     UsageLog[]
+
+  @@map("children")
+}
+
+model Device {
+  id             String         @id @default(uuid())
+  childId        String?        @map("child_id")
+  parentId       String         @map("parent_id")
+  name           String
+  type           DeviceType
+  platform       String?
+  macAddress     String?        @map("mac_address")
+  ipAddress      String?        @map("ip_address")
+  status         DeviceStatus   @default(ONLINE)
+  controlMethod  ControlMethod  @default(MOCK)
+  lastSeen       DateTime?      @map("last_seen")
+  dnsSourceIp    String?        @map("dns_source_ip")
+  dnsConfigured  Boolean        @default(false) @map("dns_configured")
+  lastDnsSeenAt  DateTime?      @map("last_dns_seen_at")
+  gatewayId      String?        @map("gateway_id")
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  child          Child?         @relation(fields: [childId], references: [id], onDelete: SetNull)
+  parent         User           @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  gateway        Gateway?       @relation(fields: [gatewayId], references: [id], onDelete: SetNull)
+  sessions       Session[]
+  usageLogs      UsageLog[]
+  commands       Command[]
+
+  @@map("devices")
+}
+
+model Rule {
+  id              String    @id @default(uuid())
+  childId         String    @map("child_id")
+  type            RuleType
+  value           String
+  startTime       String?   @map("start_time")
+  endTime         String?   @map("end_time")
+  daysOfWeek      String?   @map("days_of_week")
+  blockedApps     String[]  @map("blocked_apps")
+  blockedCategories String[] @map("blocked_categories")
+  extraMinutes    Int?      @map("extra_minutes")
+  active          Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  child           Child     @relation(fields: [childId], references: [id], onDelete: Cascade)
+
+  @@map("rules")
+}
+
+model Session {
+  id              String        @id @default(uuid())
+  deviceId        String        @map("device_id")
+  childId         String        @map("child_id")
+  parentId        String        @map("parent_id")
+  status          SessionStatus @default(ACTIVE)
+  startedAt       DateTime      @default(now()) @map("started_at")
+  pausedAt        DateTime?     @map("paused_at")
+  resumedAt       DateTime?     @map("resumed_at")
+  stoppedAt       DateTime?     @map("stopped_at")
+  expiredAt       DateTime?     @map("expired_at")
+  durationMinutes Int           @map("duration_minutes")
+  remainingMinutes Int          @map("remaining_minutes")
+  extendedMinutes Int           @default(0) @map("extended_minutes")
+  violated        Boolean       @default(false)
+  activeApp       String?       @map("active_app")
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  device          Device        @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  child           Child         @relation(fields: [childId], references: [id], onDelete: Cascade)
+  parent          User          @relation(fields: [parentId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model UsageLog {
+  id          String   @id @default(uuid())
+  deviceId    String   @map("device_id")
+  childId     String   @map("child_id")
+  appName     String?  @map("app_name")
+  category    String?
+  durationSec Int      @map("duration_seconds")
+  loggedAt    DateTime @default(now()) @map("logged_at")
+
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  child       Child    @relation(fields: [childId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, loggedAt])
+  @@index([childId, loggedAt])
+  @@map("usage_logs")
+}
+
+model Command {
+  id          String         @id @default(uuid())
+  deviceId    String         @map("device_id")
+  type        CommandType
+  payload     String?
+  status      CommandStatus  @default(PENDING)
+  deliveredAt DateTime?      @map("delivered_at")
+  ackedAt     DateTime?      @map("acked_at")
+  createdAt   DateTime       @default(now())
+
+  device      Device         @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  acks        CommandAck[]
+
+  @@map("commands")
+}
+
+model CommandAck {
+  id          String   @id @default(uuid())
+  commandId   String   @map("command_id")
+  success     Boolean
+  resultData  String?  @map("result_data")
+  ackedAt     DateTime @default(now()) @map("acked_at")
+
+  command     Command  @relation(fields: [commandId], references: [id], onDelete: Cascade)
+
+  @@map("command_acks")
+}
+
+model Gateway {
+  id            String   @id @default(uuid())
+  parentId      String   @map("parent_id")
+  name          String
+  token         String   @unique
+  endpoint      String?
+  paired        Boolean  @default(false)
+  pairedAt      DateTime? @map("paired_at")
+  lastSeen      DateTime? @map("last_seen")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  parent        User     @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  devices       Device[]
+
+  @@map("gateways")
+}
+
+model OAuthAccount {
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  provider       String
+  providerUserId String   @map("provider_user_id")
+  accessToken    String   @map("access_token")
+  refreshToken   String   @map("refresh_token")
+  tokenExpiresAt DateTime @map("token_expires_at")
+  scope          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])
+  @@map("oauth_accounts")
+}
+
+model NotificationEvent {
+  id          String           @id @default(uuid())
+  userId      String           @map("user_id")
+  type        NotificationType
+  title       String
+  message     String
+  deviceId    String?          @map("device_id")
+  childId     String?          @map("child_id")
+  sessionId   String?          @map("session_id")
+  read        Boolean          @default(false)
+  sentViaFcm  Boolean          @default(false) @map("sent_via_fcm")
+  createdAt   DateTime         @default(now())
+
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_events")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  userId      String?  @map("user_id")
+  action      String
+  entity      String
+  entityId    String?  @map("entity_id")
+  details     String?
+  ipAddress   String?  @map("ip_address")
+  createdAt   DateTime @default(now())
+
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model BlockedDomain {
+  id        String   @id @default(cuid())
+  domain    String   @unique
+  category  String?
+  createdAt DateTime @default(now())
+
+  @@map("blocked_domains")
+}
+
+model DnsQueryLog {
+  id        String   @id @default(cuid())
+  domain    String
+  sourceIp  String   @map("source_ip")
+  action    String
+  createdAt DateTime @default(now())
+
+  @@index([sourceIp])
+  @@index([createdAt])
+  @@map("dns_query_logs")
+}
+
+model Subscription {
+  id           String           @id @default(uuid())
+  userId       String           @unique @map("user_id")
+  plan         SubscriptionPlan @default(FREE)
+  stripeId     String?          @map("stripe_id")
+  active       Boolean          @default(true)
+  currentPeriodStart DateTime?  @map("current_period_start")
+  currentPeriodEnd   DateTime?  @map("current_period_end")
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
+}

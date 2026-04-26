@@ -1,0 +1,85 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: parental_control
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/parental_control?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: local-dev-secret-change-in-production
+      JWT_REFRESH_SECRET: local-dev-refresh-secret-change-in-production
+      JWT_EXPIRATION: 15m
+      JWT_REFRESH_EXPIRATION: 7d
+      ENCRYPTION_KEY: local-dev-32char-encryption-key!
+      PORT: 3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: sh -c "npx prisma migrate deploy && node dist/main.js"
+
+  mock-gateway:
+    image: node:20-alpine
+    ports:
+      - "3100:3100"
+    command: >
+      sh -c "echo 'Mock gateway running on port 3100' && node -e \"
+        const http = require('http');
+        const server = http.createServer((req, res) => {
+          res.writeHead(200, {'Content-Type':'application/json'});
+          if (req.url === '/devices') res.end(JSON.stringify({devices:[]}));
+          else if (req.url === '/status') res.end(JSON.stringify({status:'online'}));
+          else res.end(JSON.stringify({ok:true}));
+        });
+        server.listen(3100, () => console.log('Mock gateway on :3100'));
+      \""
+
+  dns-service:
+    build: ../dns-service
+    ports:
+      - "53:53/udp"
+      - "53:53/tcp"
+    environment:
+      BACKEND_URL: http://backend:3000
+      UPSTREAM_DNS: 1.1.1.1,8.8.8.8
+      DNS_PORT: 53
+    depends_on:
+      - backend
+    cap_add:
+      - NET_ADMIN
+
+volumes:
+  postgres_data:
+  redis_data:
