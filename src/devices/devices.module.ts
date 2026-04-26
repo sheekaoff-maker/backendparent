@@ -3,16 +3,22 @@ import { CacheModule } from '@nestjs/cache-manager';
 import { redisStore } from 'cache-manager-redis-yet';
 import { DevicesService } from './devices.service';
 import { DevicesController } from './devices.controller';
+import { getRedisConfig } from '../common/redis-config';
 
 @Module({
   imports: [
     CacheModule.registerAsync({
-      useFactory: () => ({
-        store: redisStore as any,
-        host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT || '6379', 10),
-        ttl: 30000,
-      }),
+      useFactory: () => {
+        const cfg = getRedisConfig();
+        return {
+          store: redisStore as any,
+          url: cfg.url,
+          socket: { host: cfg.host, port: cfg.port, tls: cfg.tls },
+          username: cfg.username,
+          password: cfg.password,
+          ttl: 30000,
+        };
+      },
     }),
   ],
   controllers: [DevicesController],

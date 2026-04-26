@@ -2,13 +2,22 @@ import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { CommandQueueService } from './command-queue.service';
 import { CommandQueueProcessor } from './command-queue.processor';
+import { getRedisConfig } from '../common/redis-config';
 
 @Module({
   imports: [
-    BullModule.forRoot({
-      connection: {
-        host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT || '6379', 10),
+    BullModule.forRootAsync({
+      useFactory: () => {
+        const cfg = getRedisConfig();
+        return {
+          connection: {
+            host: cfg.host,
+            port: cfg.port,
+            username: cfg.username,
+            password: cfg.password,
+            tls: cfg.tls ? {} : undefined,
+          },
+        };
       },
     }),
     BullModule.registerQueue({
