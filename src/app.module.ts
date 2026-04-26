@@ -22,6 +22,7 @@ import { DnsPolicyModule } from './dns-policy/dns-policy.module';
 import { HealthModule } from './health/health.module';
 import { CategoriesModule } from './categories/categories.module';
 import { PlatformSupportModule } from './platform-support/platform-support.module';
+import { OfflineControlModule } from './offline-control/offline-control.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { PlatformSupportModule } from './platform-support/platform-support.modul
     DnsPolicyModule,
     CategoriesModule,
     PlatformSupportModule,
+    OfflineControlModule,
     AuthModule,
     ParentsModule,
     ChildrenModule,

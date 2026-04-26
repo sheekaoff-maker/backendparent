@@ -90,6 +90,8 @@ enum NotificationType {
   CHILD_REQUEST_MORE_TIME
   PARENT_APPROVED
   PARENT_DENIED
+  POSSIBLE_DNS_BYPASS
+  OFFLINE_SETUP_INCOMPLETE
 }
 
 enum SubscriptionPlan {
@@ -109,6 +111,12 @@ enum BlockCategory {
 enum BlockingMode {
   GAMING_ONLY
   FULL_INTERNET_LOCK
+}
+
+enum ProtectionStatus {
+  NORMAL
+  POSSIBLE_DNS_BYPASS
+  COMPROMISED
 }
 
 model User {
@@ -173,6 +181,12 @@ model Device {
   internetLocked Boolean        @default(false) @map("internet_locked")
   internetLockedReason String?  @map("internet_locked_reason")
   internetLockedAt DateTime?    @map("internet_locked_at")
+  protectionStatus ProtectionStatus @default(NORMAL) @map("protection_status")
+  offlineControlEnabled Boolean @default(false) @map("offline_control_enabled")
+  offlineControlMethod  String? @map("offline_control_method")
+  offlineSetupCompletedAt DateTime? @map("offline_setup_completed_at")
+  offlineSetupVerified  Boolean @default(false) @map("offline_setup_verified")
+  offlineControlNotes   String? @map("offline_control_notes")
   gatewayId      String?        @map("gateway_id")
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
@@ -183,8 +197,27 @@ model Device {
   sessions       Session[]
   usageLogs      UsageLog[]
   commands       Command[]
+  offlineChecklist OfflineControlChecklist?
 
   @@map("devices")
+}
+
+model OfflineControlChecklist {
+  id                    String   @id @default(cuid())
+  deviceId              String   @unique @map("device_id")
+  pinEnabled            Boolean  @default(false) @map("pin_enabled")
+  childAccountLinked    Boolean  @default(false) @map("child_account_linked")
+  playTimeLimitEnabled  Boolean  @default(false) @map("play_time_limit_enabled")
+  ageRatingEnabled      Boolean  @default(false) @map("age_rating_enabled")
+  purchasesBlocked      Boolean  @default(false) @map("purchases_blocked")
+  networkSettingsLocked Boolean  @default(false) @map("network_settings_locked")
+  notes                 String?
+  updatedAt             DateTime @updatedAt
+  createdAt             DateTime @default(now())
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@map("offline_control_checklists")
 }
 
 model Rule {

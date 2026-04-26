@@ -72,6 +72,55 @@ export class SchedulerService {
     }
   }
 
+  /**
+   * Detect possible DNS bypass: a device is internet-locked but our DNS server has not
+   * seen a query from it for more than STALE_THRESHOLD_MIN minutes. The child likely
+   * changed DNS, started a VPN, or used a hotspot. Mark protectionStatus and notify.
+   */
+  @Cron(CronExpression.EVERY_5_MINUTES)
+  async detectDnsBypass() {
+    const STALE_THRESHOLD_MIN = 10;
+    const cutoff = new Date(Date.now() - STALE_THRESHOLD_MIN * 60_000);
+
+    const suspect = await this.prisma.device.findMany({
+      where: {
+        internetLocked: true,
+        protectionStatus: { not: 'POSSIBLE_DNS_BYPASS' },
+        OR: [
+          { lastDnsSeenAt: null },
+          { lastDnsSeenAt: { lt: cutoff } },
+        ],
+        // only flag devices that have been locked long enough to have produced traffic
+        internetLockedAt: { lt: cutoff },
+      },
+    });
+
+    for (const device of suspect) {
+      this.logger.warn(
+        `[DNS-bypass] device ${device.id} locked but no DNS hits since ${device.lastDnsSeenAt ?? 'never'}`,
+      );
+      await this.prisma.device.update({
+        where: { id: device.id },
+        data: { protectionStatus: 'POSSIBLE_DNS_BYPASS' },
+      });
+      await this.notificationsService.create({
+        userId: device.parentId,
+        type: 'POSSIBLE_DNS_BYPASS',
+        title: 'Possible DNS bypass detected',
+        message: `Device "${device.name}" is locked but our DNS server hasn't seen any traffic from it. The child may have changed DNS, started a VPN, or switched to a hotspot.`,
+        deviceId: device.id,
+        childId: device.childId ?? undefined,
+      });
+      await this.auditService.log({
+        userId: device.parentId,
+        action: 'DNS_BYPASS_DETECTED',
+        entity: 'device',
+        entityId: device.id,
+        details: `lastDnsSeenAt=${device.lastDnsSeenAt?.toISOString() ?? 'null'}, internetLockedAt=${device.internetLockedAt?.toISOString()}`,
+      });
+    }
+  }
+
   private async expireSession(session: { id: string; parentId: string; deviceId: string; childId: string; device: { id: string; type: string; controlMethod: string; gatewayId: string | null } }) {
     this.logger.log(`Session ${session.id} expired`);
 

@@ -68,6 +68,26 @@ This backend is **honest** about platform limits. The frontend should display th
 
 We will **never claim** to stop a child playing an offline single-player game on a console where the platform vendor does not give us an API. The honest path is DNS-block-online + redirect-the-parent-to-the-vendor-tools.
 
+## Offline Control Module (vendor-assisted)
+
+Backend cannot reach inside a console to kill an offline game. Instead this module:
+
+- Gives parents the **official vendor setup guide** per device type (`GET /platform-guides/:deviceType`).
+- Tracks **per-device offline-control status** (enabled / completed / verified / method).
+- Exposes a **checklist** the parent fills as they complete vendor steps:
+  `pinEnabled`, `childAccountLinked`, `playTimeLimitEnabled`, `ageRatingEnabled`, `purchasesBlocked`, `networkSettingsLocked`.
+- Returns honest `offlineControlSupported`, `offlineControlMethod`, `setupRequired`, `limitations`, `recommendedNextStep` — `GET /devices/:id/offline-control/status`.
+
+### Bypass detection
+
+A scheduled job (`@Cron(EVERY_5_MINUTES)`) flags a device as `protectionStatus = POSSIBLE_DNS_BYPASS` and creates a `POSSIBLE_DNS_BYPASS` notification when:
+
+- `device.internetLocked = true` AND
+- `device.internetLockedAt` is older than 10 minutes AND
+- our DNS server has not seen any query (`lastDnsSeenAt`) from that device in the last 10 minutes.
+
+This means the child likely changed DNS, started a VPN, or switched to a hotspot. The parent gets pinged and can act on it.
+
 
 
 ### Android (Agent App)
@@ -215,6 +235,10 @@ http://localhost:3000/api/docs
 | `/devices/:id/internet-lock` | POST | **FULL INTERNET LOCK** for a device — blocks ALL online traffic |
 | `/devices/:id/internet-unlock` | POST | Restore normal policy (GAMING_ONLY) |
 | `/devices/:id/network-status` | GET | Current blockingMode + last DNS-seen + offline-control note |
+| `/platform-guides/:deviceType` | GET | Vendor offline-control setup guide for a device type (XBOX / PLAYSTATION / NINTENDO / STEAM_DECK / SMART_TV / PC) |
+| `/devices/:id/offline-control/setup-status` | POST | Mark vendor setup as completed/verified |
+| `/devices/:id/offline-control/status` | GET | Honest support + checklist + recommendedNextStep |
+| `/devices/:id/offline-control/checklist` | POST | Update checklist fields (pinEnabled, childAccountLinked, etc.) |
 | `/admin/blocklists/domains` | GET / POST | List or add blocked domains (filter by `?category=GAMING`) |
 | `/admin/blocklists/domains/bulk` | POST | Bulk-import blocked domains |
 | `/admin/blocklists/domains/:id` | DELETE | Remove a blocked domain |
