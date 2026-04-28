@@ -28,7 +28,13 @@ import { ProtectionModule } from './protection/protection.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
-    ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
+    ThrottlerModule.forRoot([
+      // General API throttling
+      { ttl: 60000, limit: 100 },
+      // Auth endpoints: stricter limits
+      { ttl: 60000, limit: 5, name: 'auth_login' },
+      { ttl: 60000, limit: 10, name: 'auth_register' },
+    ]),
     HealthModule,
     CommonModule,
     QueueModule,

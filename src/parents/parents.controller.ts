@@ -1,4 +1,13 @@
-import { Controller, Get, Patch, Body, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Patch,
+  Body,
+  UseGuards,
+  Delete,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { ParentsService } from './parents.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -35,6 +44,13 @@ export class ParentsController {
   @ApiOperation({ summary: 'Update parent profile' })
   async updateProfile(@CurrentUser('sub') userId: string, @Body() dto: UpdateProfileDto) {
     return this.parentsService.updateProfile(userId, dto);
+  }
+
+  @Delete('profile')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Delete parent account and associated data' })
+  async deleteProfile(@CurrentUser('sub') userId: string) {
+    await this.parentsService.deleteAccount(userId);
   }
 
   @Get('subscription')
