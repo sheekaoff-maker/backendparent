@@ -81,6 +81,91 @@ export class GatewayService {
     };
   }
 
+  async getPolicies(gatewayId: string) {
+    const gateway = await this.prisma.gateway.findUnique({
+      where: { id: gatewayId },
+      include: {
+        devices: {
+          select: {
+            id: true,
+            name: true,
+            macAddress: true,
+            ipAddress: true,
+            dnsSourceIp: true,
+            status: true,
+            internetLocked: true,
+            internetLockedReason: true,
+            internetLockedAt: true,
+            blockingMode: true,
+            updatedAt: true,
+          },
+        },
+      },
+    });
+    if (!gateway) throw new NotFoundException('Gateway not found');
+
+    await this.updateLastSeen(gatewayId).catch(() => null);
+
+    return {
+      gatewayId: gateway.id,
+      generatedAt: new Date().toISOString(),
+      dnsRedirect: {
+        enabled: true,
+        resolverIp: process.env.CONTROLLED_DNS_IP || process.env.DNS_SERVICE_IP || null,
+      },
+      devices: gateway.devices.map((device) => {
+        const shouldBlock = device.internetLocked || device.status === 'BLOCKED';
+        const shouldThrottle = !shouldBlock && device.status === 'PAUSED';
+        return {
+          deviceId: device.id,
+          name: device.name,
+          macAddress: device.macAddress,
+          ipAddress: device.ipAddress,
+          dnsSourceIp: device.dnsSourceIp,
+          action: shouldBlock ? 'BLOCK' : shouldThrottle ? 'THROTTLE' : 'ALLOW',
+          reason: shouldBlock
+            ? device.internetLockedReason ?? (device.status === 'BLOCKED' ? 'MANUAL_BLOCK' : 'FULL_INTERNET_LOCK')
+            : shouldThrottle ? 'SOFT_PAUSE' : null,
+          internetLocked: device.internetLocked,
+          internetLockedAt: device.internetLockedAt,
+          blockingMode: device.blockingMode,
+          updatedAt: device.updatedAt,
+        };
+      }),
+    };
+  }
+
+  async updateDiscoveredDevices(
+    gatewayId: string,
+    devices: Array<{ ipAddress: string; macAddress: string }>,
+  ) {
+    const gateway = await this.prisma.gateway.findUnique({ where: { id: gatewayId } });
+    if (!gateway) throw new NotFoundException('Gateway not found');
+
+    const results = [];
+    for (const discovered of devices) {
+      const macAddress = discovered.macAddress.toLowerCase();
+      const device = await this.prisma.device.findFirst({
+        where: { gatewayId, macAddress },
+      });
+      if (!device) continue;
+
+      results.push(
+        await this.prisma.device.update({
+          where: { id: device.id },
+          data: {
+            ipAddress: discovered.ipAddress,
+            dnsSourceIp: discovered.ipAddress,
+            lastSeen: new Date(),
+          },
+        }),
+      );
+    }
+
+    await this.updateLastSeen(gatewayId).catch(() => null);
+    return { updated: results.length };
+  }
+
   async validateToken(token: string) {
     return this.prisma.gateway.findUnique({ where: { token } });
   }

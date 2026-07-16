@@ -1,24 +1,32 @@
-import { Controller, Get, Logger } from '@nestjs/common';
+import { Controller, Get, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { HealthService } from './health.service';
 
 @ApiTags('Health')
 @Controller()
 export class HealthController {
-  private readonly logger = new Logger(HealthController.name);
+  constructor(private readonly healthService: HealthService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Root health check' })
-  @ApiResponse({ status: 200, description: 'Service is healthy' })
+  @ApiOperation({ summary: 'Liveness — process is up' })
+  @ApiResponse({ status: 200, description: 'Service is alive' })
   root() {
-    this.logger.log('Health check: /');
     return { status: 'ok' };
   }
 
   @Get('health')
-  @ApiOperation({ summary: 'Health check endpoint' })
-  @ApiResponse({ status: 200, description: 'Service is healthy' })
+  @ApiOperation({ summary: 'Liveness check' })
+  @ApiResponse({ status: 200, description: 'Service is alive' })
   health() {
-    this.logger.log('Health check: /health');
     return { status: 'ok' };
+  }
+
+  @Get('health/ready')
+  @ApiOperation({
+    summary: 'Readiness — deep check of database and Redis dependencies',
+  })
+  @HttpCode(HttpStatus.OK)
+  ready() {
+    return this.healthService.readiness();
   }
 }

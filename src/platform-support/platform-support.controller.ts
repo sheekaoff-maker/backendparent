@@ -31,7 +31,8 @@ export class PlatformSupportController {
 
   @Get('guides/:platform')
   @ApiOperation({
-    summary: 'Get setup guide for a platform (PLAYSTATION, NINTENDO, XBOX, SMART_TV, ROUTER)',
+    summary:
+      'Get setup guide for a platform (ROUTER, XBOX, PLAYSTATION, NINTENDO, WINDOWS, MACOS, ANDROID, IOS, STEAM_DECK, SMART_TV)',
   })
   guide(@Param('platform') platform: string) {
     const guide = SETUP_GUIDES.find(

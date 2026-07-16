@@ -2,8 +2,8 @@ import { Module } from '@nestjs/common';
 import { CacheModule } from '@nestjs/cache-manager';
 import { redisStore } from 'cache-manager-redis-yet';
 import { getRedisConfig } from '../common/redis-config';
-import { HealthController } from './health.controller';
-import { HealthService } from './health.service';
+import { DeviceHealthController } from './device-health.controller';
+import { DeviceHealthService } from './device-health.service';
 
 @Module({
   imports: [
@@ -16,12 +16,13 @@ import { HealthService } from './health.service';
           socket: { host: cfg.host, port: cfg.port, tls: cfg.tls },
           username: cfg.username,
           password: cfg.password,
-          ttl: 5000,
+          ttl: 15000,
         };
       },
     }),
   ],
-  controllers: [HealthController],
-  providers: [HealthService],
+  controllers: [DeviceHealthController],
+  providers: [DeviceHealthService],
+  exports: [DeviceHealthService],
 })
-export class HealthModule {}
+export class DeviceHealthModule {}

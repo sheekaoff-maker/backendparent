@@ -1,11 +1,12 @@
-import { Controller, Post, Get, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Body, Query, UseGuards, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { GatewayService } from './gateway.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { GatewayTokenGuard } from '../common/guards/gateway-token.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { IsString, IsOptional, IsUUID } from 'class-validator';
+import { IsString, IsOptional, IsUUID, IsArray, ValidateNested } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 
 class RegisterGatewayDto {
   @ApiProperty()
@@ -28,6 +29,24 @@ class GatewayBlockDto {
   @ApiProperty()
   @IsString()
   deviceMac: string;
+}
+
+class GatewayDiscoveryDeviceDto {
+  @ApiProperty()
+  @IsString()
+  ipAddress: string;
+
+  @ApiProperty()
+  @IsString()
+  macAddress: string;
+}
+
+class GatewayDiscoveryDto {
+  @ApiProperty({ type: [GatewayDiscoveryDeviceDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => GatewayDiscoveryDeviceDto)
+  devices: GatewayDiscoveryDeviceDto[];
 }
 
 @ApiTags('Gateway')
@@ -77,5 +96,19 @@ export class GatewayController {
   @ApiOperation({ summary: 'Get gateway status' })
   async getStatus(@Query('gatewayId') gatewayId: string) {
     return this.gatewayService.getStatus(gatewayId);
+  }
+
+  @Get('policies')
+  @UseGuards(GatewayTokenGuard)
+  @ApiOperation({ summary: 'Get gateway enforcement policies for local firewall agent' })
+  async getPolicies(@Req() req: any) {
+    return this.gatewayService.getPolicies(req.gateway.id);
+  }
+
+  @Post('discovery')
+  @UseGuards(GatewayTokenGuard)
+  @ApiOperation({ summary: 'Report ARP/neighbour device discovery from gateway agent' })
+  async reportDiscovery(@Req() req: any, @Body() dto: GatewayDiscoveryDto) {
+    return this.gatewayService.updateDiscoveredDevices(req.gateway.id, dto.devices ?? []);
   }
 }

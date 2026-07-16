@@ -77,7 +77,7 @@ export class DnsPolicyService {
 
     if (!device) {
       await this.cacheManager.set(cacheKey, allowResponse, 30000);
-      await this.logQuery(domain, sourceIp, 'ALLOW');
+      this.logQuery(domain, sourceIp, 'ALLOW');
       return allowResponse;
     }
 
@@ -90,7 +90,7 @@ export class DnsPolicyService {
         category: null,
       };
       await this.cacheManager.set(cacheKey, result, 30000);
-      await this.logQuery(domain, sourceIp, 'BLOCK', device.id);
+      this.logQuery(domain, sourceIp, 'BLOCK', device.id);
       this.updateDnsSeen(device.id);
       return result;
     }
@@ -104,7 +104,7 @@ export class DnsPolicyService {
         category: null,
       };
       await this.cacheManager.set(cacheKey, result, 30000);
-      await this.logQuery(domain, sourceIp, 'BLOCK');
+      this.logQuery(domain, sourceIp, 'BLOCK');
       this.updateDnsSeen(device.id);
       return result;
     }
@@ -113,7 +113,7 @@ export class DnsPolicyService {
     if (device.status === DeviceStatus.BLOCKED) {
       const result = blockResponse('MANUAL_BLOCK');
       await this.cacheManager.set(cacheKey, result, 30000);
-      await this.logQuery(domain, sourceIp, 'BLOCK');
+      this.logQuery(domain, sourceIp, 'BLOCK');
       this.updateDnsSeen(device.id);
       return result;
     }
@@ -139,7 +139,7 @@ export class DnsPolicyService {
       if (remaining <= 0) {
         const result = blockResponse('TIME_LIMIT_EXCEEDED');
         await this.cacheManager.set(cacheKey, result, 30000);
-        await this.logQuery(domain, sourceIp, 'BLOCK');
+        this.logQuery(domain, sourceIp, 'BLOCK');
         this.updateDnsSeen(device.id);
         return result;
       }
@@ -163,7 +163,7 @@ export class DnsPolicyService {
             category: blockedDomain.category,
           };
           await this.cacheManager.set(cacheKey, result, 30000);
-          await this.logQuery(domain, sourceIp, 'BLOCK');
+          this.logQuery(domain, sourceIp, 'BLOCK');
           this.updateDnsSeen(device.id);
           return result;
         }
@@ -171,14 +171,14 @@ export class DnsPolicyService {
       // 4b. Otherwise treat as global domain block
       const result = blockResponse('DOMAIN_BLOCKED');
       await this.cacheManager.set(cacheKey, result, 30000);
-      await this.logQuery(domain, sourceIp, 'BLOCK');
+      this.logQuery(domain, sourceIp, 'BLOCK');
       this.updateDnsSeen(device.id);
       return result;
     }
 
     // 5. Allow — but log domain as unknown so admins can categorise it later
     await this.cacheManager.set(cacheKey, allowResponse, 30000);
-    await this.logQuery(domain, sourceIp, 'ALLOW', device.id);
+    this.logQuery(domain, sourceIp, 'ALLOW', device.id);
     this.updateDnsSeen(device.id);
     this.recordUnknownDomain(domain, sourceIp, device.id);
     return allowResponse;
@@ -222,14 +222,20 @@ export class DnsPolicyService {
     return match;
   }
 
-  private async logQuery(domain: string, sourceIp: string, action: string, _deviceId?: string) {
-    try {
-      await this.prisma.dnsQueryLog.create({
-        data: { domain, sourceIp, action },
+  /**
+   * Fire-and-forget audit log. Deliberately NOT awaited on the resolver hot
+   * path — a DNS decision must not wait on a Postgres insert. Failures are
+   * swallowed (logged at debug) since a missing audit row must never block or
+   * fail a policy lookup.
+   */
+  private logQuery(domain: string, sourceIp: string, action: string, _deviceId?: string): void {
+    this.prisma.dnsQueryLog
+      .create({ data: { domain, sourceIp, action } })
+      .catch((error: unknown) => {
+        this.logger.debug(
+          `Failed to log DNS query: ${error instanceof Error ? error.message : String(error)}`,
+        );
       });
-    } catch (error: any) {
-      this.logger.warn(`Failed to log DNS query: ${error.message}`);
-    }
   }
 
   private updateDnsSeen(deviceId: string) {

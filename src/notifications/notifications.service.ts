@@ -1,12 +1,14 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { NotificationType } from '@prisma/client';
+import { PushService } from '../push/push.service';
 
 @Injectable()
 export class NotificationsService {
-  private readonly logger = new Logger(NotificationsService.name);
-
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private push: PushService,
+  ) {}
 
   async create(data: {
     userId: string;
@@ -29,9 +31,51 @@ export class NotificationsService {
       },
     });
 
-    await this.sendViaFcm(notification.id, data.userId, data.title, data.message);
+    // Fan out to the user's devices. Delivery is best-effort and never blocks
+    // or fails the triggering action; the row is already persisted for the
+    // in-app notification center regardless of push outcome.
+    const delivered = await this.deliver(notification.id, data);
+
+    if (delivered) {
+      await this.prisma.notificationEvent
+        .update({ where: { id: notification.id }, data: { sentViaFcm: true } })
+        .catch(() => undefined);
+    }
 
     return notification;
+  }
+
+  private async deliver(
+    notificationId: string,
+    data: {
+      userId: string;
+      type: NotificationType;
+      title: string;
+      message: string;
+      deviceId?: string;
+      childId?: string;
+      sessionId?: string;
+    },
+  ): Promise<boolean> {
+    if (!this.push.deliveryEnabled) return false;
+    // Deep-link payload consumed by the mobile app's notification handler.
+    const payload: Record<string, string> = {
+      notificationId,
+      type: data.type,
+    };
+    if (data.deviceId) payload.deviceId = data.deviceId;
+    if (data.childId) payload.childId = data.childId;
+    if (data.sessionId) payload.sessionId = data.sessionId;
+    try {
+      await this.push.sendToUser(data.userId, {
+        title: data.title,
+        body: data.message,
+        data: payload,
+      });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async findByUser(userId: string) {
@@ -57,14 +101,5 @@ export class NotificationsService {
       throw new NotFoundException('Notification not found');
     }
     return this.markRead(notificationId);
-  }
-
-  private async sendViaFcm(notificationId: string, userId: string, title: string, message: string) {
-    const fcmKey = process.env.FCM_SERVER_KEY;
-    if (!fcmKey) {
-      this.logger.warn(`FCM_SERVER_KEY not set. Notification ${notificationId} stored but not pushed.`);
-      return;
-    }
-    this.logger.log(`[FCM Placeholder] Would send to user ${userId}: ${title} - ${message}`);
   }
 }

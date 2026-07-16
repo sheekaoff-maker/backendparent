@@ -135,6 +135,62 @@ export class SchedulerService {
   }
 
   /**
+   * Automatic DNS health monitoring: a device with a LIVE session should be
+   * sending DNS queries through us. If it has an active session but our DNS
+   * server has not seen it for FRESH_MIN minutes, filtering is likely bypassed
+   * or misconfigured while the child is actively online. Notify the parent
+   * (deduped over 6h) so they can re-check setup.
+   *
+   * Complements detectDnsBypass, which only covers internet-locked devices.
+   */
+  @Cron(CronExpression.EVERY_5_MINUTES)
+  async monitorDeviceHealth() {
+    const FRESH_MIN = 15;
+    const DEDUPE_HOURS = 6;
+    const cutoff = new Date(Date.now() - FRESH_MIN * 60_000);
+
+    const liveSessions = await this.prisma.session.findMany({
+      where: { status: SessionStatus.ACTIVE },
+      select: { device: true },
+    });
+
+    const seen = new Set<string>();
+    for (const { device } of liveSessions) {
+      if (!device || seen.has(device.id)) continue;
+      seen.add(device.id);
+      if (!device.dnsConfigured) continue;
+      const silent = !device.lastDnsSeenAt || device.lastDnsSeenAt < cutoff;
+      if (!silent) continue;
+
+      const recent = await this.prisma.notificationEvent.findFirst({
+        where: {
+          deviceId: device.id,
+          type: 'DEVICE_DISCONNECTED',
+          createdAt: { gte: new Date(Date.now() - DEDUPE_HOURS * 60 * 60_000) },
+        },
+      });
+      if (recent) continue;
+
+      this.logger.warn(`[health] device ${device.id} active but DNS silent`);
+      await this.notificationsService.create({
+        userId: device.parentId,
+        type: 'DEVICE_DISCONNECTED',
+        title: 'Protection not verified during active use',
+        message: `"${device.name}" has a live session but our DNS server hasn't seen it for over ${FRESH_MIN} minutes. Filtering may be bypassed — check the router/DNS setup, Private DNS, or for a VPN/hotspot.`,
+        deviceId: device.id,
+        childId: device.childId ?? undefined,
+      });
+      await this.auditService.log({
+        userId: device.parentId,
+        action: 'DNS_HEALTH_ALERT',
+        entity: 'device',
+        entityId: device.id,
+        details: `active session, lastDnsSeenAt=${device.lastDnsSeenAt?.toISOString() ?? 'null'}`,
+      });
+    }
+  }
+
+  /**
    * Smart auto-block: per-device daily-limit + bedtime enforcement.
    * Respects autoBlockEnabled — opt-in only.
    */

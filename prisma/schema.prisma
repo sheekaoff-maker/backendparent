@@ -12,6 +12,7 @@ enum Role {
   PARENT
   CHILD_DEVICE
   GATEWAY
+  ADMIN
 }
 
 enum DeviceType {
@@ -24,6 +25,7 @@ enum DeviceType {
   NINTENDO
   STEAM_DECK
   PC
+  MAC
   SMART_TV
   STREAMING_BOX
   OTHER
@@ -143,8 +145,23 @@ model User {
   notifications  NotificationEvent[]
   auditLogs      AuditLog[]
   subscription   Subscription?
+  pushTokens     PushToken[]
 
   @@map("users")
+}
+
+model PushToken {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  token      String   @unique
+  platform   String   // ios | android | web
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime @default(now()) @map("last_used_at")
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_tokens")
 }
 
 model Child {
@@ -164,6 +181,7 @@ model Child {
   usageLogs     UsageLog[]
   categoryBlocks CategoryBlock[]
 
+  @@index([parentId])
   @@map("children")
 }
 
@@ -213,6 +231,11 @@ model Device {
   commands       Command[]
   offlineChecklist OfflineControlChecklist?
 
+  // DNS policy hot path resolves a device by source IP on every cache miss.
+  @@index([ipAddress])
+  @@index([dnsSourceIp])
+  @@index([parentId])
+  @@index([gatewayId, macAddress])
   @@map("devices")
 }
 
@@ -294,6 +317,9 @@ model Session {
   child           Child         @relation(fields: [childId], references: [id], onDelete: Cascade)
   parent          User          @relation(fields: [parentId], references: [id], onDelete: Cascade)
 
+  // DNS policy + session lookups filter by device and status.
+  @@index([deviceId, status])
+  @@index([parentId])
   @@map("sessions")
 }
 

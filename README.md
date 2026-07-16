@@ -1,516 +1,401 @@
-# Smart Parental Control Backend
+<div align="center">
 
-A production-ready backend for a smart parental control system built with **NestJS**, **PostgreSQL**, **Prisma**, **Redis**, **JWT**, and **Swagger**.
+# 🛡️ GuardTime — Backend API
 
-## Architecture
+**Production-ready NestJS backend for the GuardTime parental control platform.**
 
-```
-┌─────────────┐     ┌─────────────┐     ┌──────────────┐
-│   Parent     │────▶│   Backend   │────▶│  PostgreSQL   │
-│   App/API    │     │   (NestJS)  │     │  (Prisma ORM) │
-└─────────────┘     └──────┬──────┘     └──────────────┘
-                           │
-                    ┌──────┴──────┐
-                    │             │
-              ┌─────▼─────┐ ┌────▼─────┐
-              │   Redis   │ │ Gateway  │
-              │  (Cache)  │ │  (Pi/    │
-              └───────────┘ │  Router) │
-                            └──────────┘
-```
+[![NestJS](https://img.shields.io/badge/NestJS-10-E0234E?style=flat-square&logo=nestjs)](https://nestjs.com)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.3-3178C6?style=flat-square&logo=typescript)](https://typescriptlang.org)
+[![Prisma](https://img.shields.io/badge/Prisma-5-2D3748?style=flat-square&logo=prisma)](https://prisma.io)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?style=flat-square&logo=postgresql)](https://postgresql.org)
+[![Redis](https://img.shields.io/badge/Redis-7-DC382D?style=flat-square&logo=redis)](https://redis.io)
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat-square&logo=docker)](https://docker.com)
 
-## Modules
+[Modules](#-modules) · [Getting Started](#-getting-started) · [API Reference](#-api-reference) · [DNS Filtering](#-dns-filtering) · [Security](#-security) · [Deployment](#-deployment)
+
+</div>
+
+---
+
+## 📖 Overview
+
+This is the central API for GuardTime Parent — a smart parental control platform that manages screen time and internet access across phones, tablets, gaming consoles, smart TVs, and PCs.
+
+The backend handles authentication, device management, session enforcement, real-time DNS filtering, platform-specific control adapters, scheduled jobs, push notifications, and a full audit trail — all in a single production-ready NestJS application.
+
+---
+
+## 🧩 Modules
 
 | Module | Description |
 |--------|-------------|
-| **Auth** | Parent register/login, JWT access+refresh tokens, bcrypt hashing, role-based auth (PARENT, CHILD_DEVICE, GATEWAY) |
-| **Parents** | Profile CRUD, subscription placeholder |
-| **Children** | Child profile CRUD with avatar, age, default limits |
-| **Devices** | Device CRUD with type/control method enums, status tracking |
-| **Rules** | Daily limit, bedtime, school time, weekend mode, reward extra time, blocked apps/categories |
-| **Sessions** | Start/pause/resume/extend/stop/expire sessions, remaining time calculation, daily limit enforcement |
-| **UsageLogs** | Receive usage logs, aggregate daily/weekly reports, detect active app |
-| **Enforcement** | Adapter pattern with 5 adapters: AndroidAgent, IosScreenTime, Xbox, NetworkGateway, Mock |
-| **ChildAgent** | Endpoints for child agent polling, command ack, usage logs, status, time requests |
-| **Gateway** | Register/pair gateway, list devices, block/unblock via gateway token auth |
-| **OAuth** | Microsoft OAuth flow skeleton with encrypted token storage |
-| **Notifications** | Notification events with FCM placeholder |
-| **Scheduler** | Every-minute cron: check active sessions, enforce bedtime rules, send notifications, audit logs |
-| **Audit** | Audit log for all enforcement and administrative actions |
-| **Queue** | BullMQ command delivery queue with Redis, retry logic, and status tracking |
-| **DnsPolicy** | DNS filtering: real-time ALLOW/BLOCK decisions for domain queries, Redis-cached (30s), logs all queries |
-| **Categories** | Block-by-category engine (GAMING / STREAMING / SOCIAL / ADULT / CUSTOM) with wildcard domains + per-child category blocks |
-| **PlatformSupport** | Honest device-support matrix + step-by-step setup guides for PlayStation / Nintendo / Xbox / Smart TV / Router |
+| **Auth** | JWT access + refresh tokens, bcrypt hashing, account lockout, role-based guards |
+| **Parents** | Parent profile CRUD and subscription management |
+| **Children** | Child profile CRUD — name, avatar, age, default limits |
+| **Devices** | Device registry with 13 device types and 8 control methods |
+| **Rules** | Daily limits, bedtime, school time, weekend mode, blocked apps/categories |
+| **Sessions** | Start / pause / resume / extend / stop / expire with remaining-time tracking |
+| **UsageLogs** | Receive and aggregate daily + weekly usage reports |
+| **Enforcement** | Adapter pattern — Android agent, iOS Screen Time, Xbox, Network Gateway, Mock |
+| **ChildAgent** | Agent polling endpoints — commands, rules, usage logs, time requests |
+| **Gateway** | Register, pair, and communicate with home router / Raspberry Pi agents |
+| **OAuth** | Microsoft OAuth flow with AES-256-CBC encrypted token storage |
+| **Notifications** | FCM HTTP v1 push + in-app notification centre |
+| **Push** | Firebase Cloud Messaging with push token registry |
+| **Reports** | Per-child and per-device usage reports (daily / weekly) |
+| **Scheduler** | Every-minute cron: session expiry, bedtime enforcement, bypass detection |
+| **Audit** | Append-only audit log for all enforcement and admin actions |
+| **Queue** | BullMQ command delivery queue with retry and acknowledgement tracking |
+| **DnsPolicy** | Real-time DNS ALLOW/BLOCK decisions with 30s Redis cache |
+| **Categories** | Per-child category blocks — GAMING, STREAMING, SOCIAL, ADULT, CUSTOM |
+| **PlatformSupport** | Honest device support matrix + vendor setup guides |
+| **OfflineControl** | Vendor-assisted offline checklist + setup guide delivery |
+| **Protection** | Per-device protection score (0–100) with bypass detection and escalation |
+| **DeviceHealth** | Device online/offline status and health monitoring |
+| **Health** | Liveness and readiness endpoints for load balancer health checks |
+| **Common** | Shared guards, filters, interceptors, Prisma service, encryption |
 
-## What This Backend Can And CANNOT Do (Reality Check)
+---
 
-This backend is **honest** about platform limits. The frontend should display these to parents.
-
-### ✅ What we CAN do globally (via DNS filtering):
-- Block ALL online gaming traffic on **any** device on the home network: PSN, Xbox Live, Nintendo eShop, Steam, Epic, Battle.net, Riot, Discord, Twitch, Roblox, Fortnite, etc.
-- Block streaming (YouTube, Netflix, TikTok, etc.) and social (Instagram, Snapchat, etc.) the same way.
-- Per-child category blocks (GAMING / STREAMING / SOCIAL / ADULT / CUSTOM) — see `/admin/blocklists/children/:childId/categories`.
-
-### ✅ What we CAN do per device:
-| Platform | Online block | Offline block | How |
-|----------|:-:|:-:|---|
-| Android | ✅ | ✅ | Child agent app (Device Admin) |
-| iOS / iPad | ✅ | ✅ | Apple Family Controls entitlement |
-| Xbox | ✅ | ✅ | Microsoft Family OAuth |
-
-### ❌ What we CANNOT do (no agent / no API):
-| Platform | Online block | Offline block | What parents must do |
-|----------|:-:|:-:|---|
-| PlayStation | ✅ via DNS | ❌ | Use Sony **PSN Family** parental controls (we provide a step-by-step guide via `/platform-support/guides/PLAYSTATION`) |
-| Nintendo Switch | ✅ via DNS | ❌ | Use the **Nintendo Switch Parental Controls** mobile app (guide at `/platform-support/guides/NINTENDO`) |
-| Smart TV | ✅ via DNS | ❌ | Set DNS at the router so the TV is forced through our filter |
-| Steam Deck / PC | ✅ via DNS | ❌ | Use **Steam Family View** + Windows/macOS parental controls |
-
-We will **never claim** to stop a child playing an offline single-player game on a console where the platform vendor does not give us an API. The honest path is DNS-block-online + redirect-the-parent-to-the-vendor-tools.
-
-## Offline Control Module (vendor-assisted)
-
-Backend cannot reach inside a console to kill an offline game. Instead this module:
-
-- Gives parents the **official vendor setup guide** per device type (`GET /platform-guides/:deviceType`).
-- Tracks **per-device offline-control status** (enabled / completed / verified / method).
-- Exposes a **checklist** the parent fills as they complete vendor steps:
-  `pinEnabled`, `childAccountLinked`, `playTimeLimitEnabled`, `ageRatingEnabled`, `purchasesBlocked`, `networkSettingsLocked`.
-- Returns honest `offlineControlSupported`, `offlineControlMethod`, `setupRequired`, `limitations`, `recommendedNextStep` — `GET /devices/:id/offline-control/status`.
-
-### Bypass detection
-
-A scheduled job (`@Cron(EVERY_5_MINUTES)`) flags a device as `protectionStatus = POSSIBLE_DNS_BYPASS` and creates a `POSSIBLE_DNS_BYPASS` notification when:
-
-- `device.internetLocked = true` AND
-- `device.internetLockedAt` is older than 10 minutes AND
-- our DNS server has not seen any query (`lastDnsSeenAt`) from that device in the last 10 minutes.
-
-This means the child likely changed DNS, started a VPN, or switched to a hotspot. The parent gets pinged and can act on it.
-
-## Protection Score & Insights
-
-Per-device 0-100 score (`GET /devices/:id/protection-score`) computed from four buckets:
-
-| Bucket | Max | Signals |
-|---|---|---|
-| **DNS visibility** | 30 | `dnsConfigured`, recency of `lastDnsSeenAt` |
-| **Lock state** | 15 | `internetLocked`, `blockingMode` |
-| **Offline setup** | 30 | `offlineSetupVerified`, completed checklist items |
-| **Bypass history** | 25 | `protectionStatus`, `bypassAttempts` |
-
-Levels: **HIGH ≥ 80**, **MEDIUM 50-79**, **LOW < 50**.
-
-`GET /devices/:id/insights` returns the full dashboard payload (score, breakdown, status, last DNS hit, top domains 7d, plain-English recommendations).
-
-## Smart Auto-Block (per-device)
-
-`POST /devices/:id/schedule` accepts:
-
-```json
-{
-  "dailyLimitMinutes": 120,
-  "bedtimeStart": "21:00",
-  "bedtimeEnd": "07:00",
-  "autoBlockEnabled": true
-}
-```
-
-A scheduler cron (`@Cron(EVERY_MINUTE)`) enforces:
-
-- **Bedtime**: while `now ∈ [bedtimeStart, bedtimeEnd)` (handles midnight wrap), the device is auto-`internetLocked` with reason `Bedtime …`. Auto-unlock when the window ends.
-- **Daily limit**: if today's session minutes for the device ≥ `dailyLimitMinutes`, GAMING category is auto-blocked for that child.
-
-Both actions are logged in audit + create notifications. Parent can override via the existing `/devices/:id/internet-unlock`.
-
-## Anti-bypass — escalation
-
-The bypass detection cron now increments `bypassAttempts` and **escalates to `protectionStatus = COMPROMISED`** after 3 detections. A `REPEATED_BYPASS` notification fires on escalation; a separate `PROTECTION_LOW` notification fires (de-duped per 24h) whenever score drops below 50.
-
-## Domain Learning System
-
-Every DNS query for a known device whose domain is **not** in a blocklist is upserted into `UnknownDomainLog (domain, deviceId)` with a hit-counter.
-
-- `GET /admin/domains/unknown?limit=100&classified=false` — list, sorted by hits
-- `POST /admin/domains/classify { domain, category, wildcard? }` — promotes the domain into `BlockedDomain` and marks every matching unknown row as classified
-
-Use this to grow the blocklists empirically from real traffic instead of guessing.
-
-## STRICT MODE — anti-DoH / anti-VPN basic
-
-Set env `STRICT_MODE=true` to make the DNS policy block well-known DNS-over-HTTPS / public-resolver endpoints **before** any other rule:
-
-```
-dns.google, dns.google.com, cloudflare-dns.com, one.one.one.one,
-doh.opendns.com, dns.quad9.net, doh.cleanbrowsing.org, nextdns.io,
-dns.nextdns.io, doh.dns.sb, dns.adguard.com, dns.adguard-dns.com,
-mozilla.cloudflare-dns.com, chrome.cloudflare-dns.com
-```
-
-Any subdomain of these is matched too. Reason returned: `STRICT_MODE_DOH`. Parents can disable by unsetting the env.
-
-
-
-### Android (Agent App)
-- **Method**: Child-side agent app with Device Admin privileges
-- **Capabilities**: Full control — block apps, lock device, sync rules, enforce bedtime
-- **Status**: ✅ Fully supported via command queue
-
-### iOS (Screen Time API)
-- **Method**: Apple Family Controls + ManagedSettings + DeviceActivity frameworks
-- **Capabilities**: Screen Time restrictions, app limits, communication limits
-- **Limitations**: **Requires Apple Family Controls entitlement** (must be requested from Apple). Without it, the iOS adapter stores rules but cannot enforce them natively.
-- **Status**: ⚠️ Skeleton implemented — requires native Swift implementation + Apple entitlement
-
-### Xbox
-- **Method**: Microsoft Family Safety API + network gateway fallback
-- **Capabilities**: Time limits, content restrictions (if Microsoft API available)
-- **Limitations**: Direct family control APIs for Xbox are not publicly available. Falls back to network gateway if no Microsoft OAuth linked.
-- **Status**: ⚠️ Skeleton + gateway fallback
-
-### PlayStation / Smart TV / Streaming Boxes
-- **Method**: Network gateway only (router/Raspberry Pi)
-- **Capabilities**: Block/unblock internet access
-- **Limitations**: **Cannot kill offline games directly**. Only online access can be controlled. For offline violations, the system:
-  1. Expires the session
-  2. Blocks internet via gateway
-  3. Prevents future online access
-  4. Applies cooldown
-  5. Notifies parent
-  6. Marks session as violated
-- **Status**: ⚠️ Network-level only
-
-## Mock Mode
-
-All adapters have a **MockAdapter** fallback. Set a device's `controlMethod` to `MOCK` for development/testing. The mock adapter returns success for all operations without performing real enforcement.
-
-## Getting Started
+## 🚀 Getting Started
 
 ### Prerequisites
+
 - Node.js 20+
 - PostgreSQL 16+
 - Redis 7+
-- (Optional) Docker & Docker Compose
+- Docker + Docker Compose (optional)
 
 ### Local Development
 
 ```bash
-# Install dependencies
+# 1. Clone and install
+git clone https://github.com/sheekaoff-maker/backendparent.git
+cd backendparent
+
 npm install
 
-# Generate Prisma client
-npx prisma generate
+# 2. Configure environment
+cp .env.example .env
+# Edit .env — minimum required: DATABASE_URL, JWT_SECRET, JWT_REFRESH_SECRET, ENCRYPTION_KEY
 
-# Run migrations
+# 3. Set up database
+npx prisma generate
 npx prisma migrate dev
 
-# Start development server
+# 4. Start development server (hot reload)
 npm run start:dev
 ```
 
+The API runs at `http://localhost:3000`. Swagger UI at `http://localhost:3000/api/docs`.
+
 ### Docker Compose
 
-```bash
-# Start all services (postgres, redis, backend, mock-gateway)
-docker-compose up -d
+Starts PostgreSQL, Redis, the NestJS API, and a mock gateway agent together.
 
-# Run migrations inside container
-docker-compose exec backend npx prisma migrate deploy
+```bash
+cp .env.example .env   # edit values as needed
+
+docker-compose up -d
 
 # View logs
 docker-compose logs -f backend
+
+# Run a migration inside the container
+docker-compose exec backend npx prisma migrate deploy
 ```
 
-### Environment Variables
+---
 
-Copy `.env.example` to `.env` and configure:
+## ⚙️ Environment Variables
+
+Copy `.env.example` to `.env`. The application refuses to start if required secrets are missing or too short.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://postgres:postgres@localhost:5432/parental_control` |
-| `REDIS_HOST` | Redis host | `localhost` |
+| `DATABASE_URL` | PostgreSQL connection string | — |
+| `DIRECT_URL` | Non-pooled URL for migrations | — |
+| `REDIS_HOST` | Redis hostname | `localhost` |
 | `REDIS_PORT` | Redis port | `6379` |
-| `JWT_SECRET` | Access token secret | — |
-| `JWT_REFRESH_SECRET` | Refresh token secret | — |
-| `JWT_EXPIRATION` | Access token expiry | `15m` |
-| `JWT_REFRESH_EXPIRATION` | Refresh token expiry | `7d` |
-| `ENCRYPTION_KEY` | AES-256-CBC key (32 chars) | — |
-| `MICROSOFT_OAUTH_CLIENT_ID` | Microsoft OAuth client ID | — |
-| `MICROSOFT_OAUTH_CLIENT_SECRET` | Microsoft OAuth client secret | — |
-| `MICROSOFT_OAUTH_REDIRECT_URI` | Microsoft OAuth redirect URI | — |
-| `FCM_SERVER_KEY` | Firebase Cloud Messaging key | — |
+| `REDIS_URL` | Full Redis URL (overrides host/port) | — |
+| `JWT_SECRET` | Access token secret (≥ 32 chars) | — |
+| `JWT_REFRESH_SECRET` | Refresh token secret (≥ 32 chars, different) | — |
+| `JWT_EXPIRATION` | Access token TTL | `15m` |
+| `JWT_REFRESH_EXPIRATION` | Refresh token TTL | `7d` |
+| `ENCRYPTION_KEY` | AES-256 key for OAuth tokens (exactly 32 chars) | — |
+| `CORS_ORIGINS` | Comma-separated allowed origins | — |
+| `MICROSOFT_OAUTH_CLIENT_ID` | Xbox Microsoft OAuth | Optional |
+| `MICROSOFT_OAUTH_CLIENT_SECRET` | Xbox Microsoft OAuth | Optional |
+| `MICROSOFT_OAUTH_REDIRECT_URI` | OAuth callback URI | Optional |
+| `FCM_PROJECT_ID` | Firebase project ID | Optional |
+| `FCM_CLIENT_EMAIL` | Firebase service account email | Optional |
+| `FCM_PRIVATE_KEY` | Firebase service account private key | Optional |
+| `STRICT_MODE` | Block DoH/VPN resolvers | `false` |
 | `PORT` | Server port | `3000` |
+| `NODE_ENV` | Environment | `development` |
 
-### API Documentation
+---
 
-After starting the server, visit:
+## 📡 API Reference
+
+Full interactive documentation: **`http://localhost:3000/api/docs`** (Swagger UI)
+
+### Authentication
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/auth/register` | Register a parent account |
+| POST | `/auth/login` | Login and receive access + refresh tokens |
+| POST | `/auth/refresh` | Exchange a refresh token for a new pair |
+| POST | `/auth/logout` | Invalidate the current refresh token |
+
+### Children & Devices
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET / POST | `/children` | List or create child profiles |
+| GET / PATCH / DELETE | `/children/:id` | Read, update, or delete a child |
+| GET / POST | `/devices` | List or register devices |
+| GET / PATCH / DELETE | `/devices/:id` | Read, update, or delete a device |
+| POST | `/devices/:id/internet-lock` | Full Internet Lock — blocks all traffic |
+| POST | `/devices/:id/internet-unlock` | Restore normal policy |
+| GET / POST | `/devices/:id/schedule` | Auto-block schedule (bedtime + daily limit) |
+| GET | `/devices/:id/protection-score` | 0–100 protection score |
+| GET | `/devices/:id/insights` | Full dashboard payload with recommendations |
+
+### Sessions
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/sessions/start` | Start a timed gaming session |
+| POST | `/sessions/:id/pause` | Pause the session |
+| POST | `/sessions/:id/resume` | Resume a paused session |
+| POST | `/sessions/:id/extend` | Extend remaining time |
+| POST | `/sessions/:id/stop` | Stop the session immediately |
+| GET | `/sessions/active` | List all active sessions |
+| GET | `/sessions/history` | Paginated session history |
+
+### DNS Policy
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/dns/policy/check?sourceIp=&domain=` | Real-time ALLOW / BLOCK decision |
+
+### Rules & Enforcement
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET / POST | `/rules` | List or create rules |
+| PATCH / DELETE | `/rules/:id` | Update or delete a rule |
+| POST | `/enforcement/block` | Block a device |
+| POST | `/enforcement/unblock` | Unblock a device |
+| POST | `/enforcement/sync` | Sync rules to a device |
+
+### Child Agent Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/child/register-device` | Register agent from the child device |
+| GET | `/child/rules` | Poll pending rules |
+| GET | `/child/commands` | Poll pending commands |
+| POST | `/child/command-ack` | Acknowledge a command |
+| POST | `/child/usage-log` | Report app usage |
+| POST | `/child/request-more-time` | Request a time extension |
+| POST | `/child/status` | Report online status + active app |
+
+### Gateway
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/gateway/register` | Register a new gateway |
+| POST | `/gateway/pair` | Pair and activate a gateway |
+| GET | `/gateway/devices` | List devices behind this gateway |
+| POST | `/gateway/block` | Block a device via gateway |
+| POST | `/gateway/unblock` | Unblock a device via gateway |
+
+### Admin — Blocklists
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET / POST | `/admin/blocklists/domains` | List or add blocked domains |
+| POST | `/admin/blocklists/domains/bulk` | Bulk-import blocked domains |
+| DELETE | `/admin/blocklists/domains/:id` | Remove a blocked domain |
+| GET / POST | `/admin/blocklists/children/:childId/categories` | Child category blocks |
+| GET | `/admin/domains/unknown` | Unclassified domains from real traffic |
+| POST | `/admin/domains/classify` | Classify a domain into a category |
+
+### Platform Support
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/platform-support/matrix` | Full device support matrix |
+| GET | `/platform-support/matrix/:deviceType` | Support info for one device type |
+| GET | `/platform-support/guides` | All vendor setup guides |
+| GET | `/platform-support/guides/:platform` | Guide for PlayStation / Nintendo / Xbox / Smart TV / Router |
+
+---
+
+## 🌐 DNS Filtering
+
+### How It Works
+
 ```
-http://localhost:3000/api/docs
+Device ──DNS query──▶ DNS Service (port 53)
+                          │
+                    ┌─────▼──────────────────────┐
+                    │  GET /dns/policy/check      │
+                    │  ?sourceIp=192.168.1.x      │
+                    │  &domain=youtube.com        │
+                    └─────┬──────────────────────┘
+                          │
+                  ┌───────▼────────┐
+                  │  Redis Cache   │  30s TTL
+                  └───────┬────────┘
+                          │ cache miss
+                  ┌───────▼────────┐
+                  │  Policy Engine │
+                  │  (PostgreSQL)  │
+                  └───────┬────────┘
+                          │
+                    ALLOW ──▶ forward to 1.1.1.1
+                    BLOCK ──▶ return 0.0.0.0
 ```
 
-## API Endpoints Overview
+### Policy Decision Order
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/auth/register` | POST | Register parent |
-| `/auth/login` | POST | Login |
-| `/auth/refresh` | POST | Refresh tokens |
-| `/auth/logout` | POST | Logout |
-| `/parents/profile` | GET/PATCH | Parent profile |
-| `/parents/subscription` | GET | Subscription info |
-| `/children` | POST/GET | Create/list children |
-| `/children/:id` | GET/PATCH/DELETE | Child CRUD |
-| `/devices` | POST/GET | Create/list devices |
-| `/devices/:id` | GET/PATCH/DELETE | Device CRUD |
-| `/rules` | POST/GET | Create/list rules |
-| `/rules/:id` | PATCH/DELETE | Update/delete rule |
-| `/sessions/start` | POST | Start session |
-| `/sessions/:id/pause` | POST | Pause session |
-| `/sessions/:id/resume` | POST | Resume session |
-| `/sessions/:id/extend` | POST | Extend session |
-| `/sessions/:id/stop` | POST | Stop session |
-| `/sessions/active` | GET | Active sessions |
-| `/sessions/history` | GET | Session history |
-| `/usage/daily` | GET | Daily usage report |
-| `/usage/weekly` | GET | Weekly usage report |
-| `/usage/device/:id` | GET | Device usage |
-| `/enforcement/block` | POST | Block device |
-| `/enforcement/unblock` | POST | Unblock device |
-| `/enforcement/sync` | POST | Sync rules to device |
-| `/child/register-device` | POST | Register device from agent |
-| `/child/rules` | GET | Get rules (agent poll) |
-| `/child/commands` | GET | Get commands (agent poll) |
-| `/child/command-ack` | POST | Acknowledge command |
-| `/child/usage-log` | POST | Report usage |
-| `/child/request-more-time` | POST | Child time request |
-| `/child/status` | POST | Report device status |
-| `/gateway/register` | POST | Register gateway |
-| `/gateway/pair` | POST | Pair gateway |
-| `/gateway/devices` | GET | List gateway devices |
-| `/gateway/block` | POST | Block via gateway |
-| `/gateway/unblock` | POST | Unblock via gateway |
-| `/oauth/microsoft/url` | GET | Get OAuth URL |
-| `/oauth/microsoft/callback` | GET | OAuth callback |
-| `/oauth/microsoft/refresh` | POST | Refresh OAuth token |
-| `/dns/policy/check` | GET | Check DNS policy (sourceIp + domain) → ALLOW/BLOCK |
-| `/devices/:id/internet-lock` | POST | **FULL INTERNET LOCK** for a device — blocks ALL online traffic |
-| `/devices/:id/internet-unlock` | POST | Restore normal policy (GAMING_ONLY) |
-| `/devices/:id/network-status` | GET | Current blockingMode + last DNS-seen + offline-control note |
-| `/platform-guides/:deviceType` | GET | Vendor offline-control setup guide for a device type (XBOX / PLAYSTATION / NINTENDO / STEAM_DECK / SMART_TV / PC) |
-| `/devices/:id/offline-control/setup-status` | POST | Mark vendor setup as completed/verified |
-| `/devices/:id/offline-control/status` | GET | Honest support + checklist + recommendedNextStep |
-| `/devices/:id/offline-control/checklist` | POST | Update checklist fields (pinEnabled, childAccountLinked, etc.) |
-| `/devices/:id/protection-score` | GET | 0-100 protection score with HIGH/MEDIUM/LOW level + breakdown |
-| `/devices/:id/insights` | GET | Dashboard payload: score, status, top domains, recommendations |
-| `/devices/:id/schedule` | GET / POST | Auto-block schedule (dailyLimitMinutes, bedtimeStart, bedtimeEnd, autoBlockEnabled) |
-| `/admin/domains/unknown` | GET | Domains seen by DNS that are not yet in any blocklist (sorted by hit-count) |
-| `/admin/domains/classify` | POST | Classify an unknown domain into a real BlockedDomain |
-| `/admin/blocklists/domains` | GET / POST | List or add blocked domains (filter by `?category=GAMING`) |
-| `/admin/blocklists/domains/bulk` | POST | Bulk-import blocked domains |
-| `/admin/blocklists/domains/:id` | DELETE | Remove a blocked domain |
-| `/admin/blocklists/children/:childId/categories` | GET / POST | List or set category blocks for a child |
-| `/platform-support/matrix` | GET | Full device-type support matrix (online/offline) |
-| `/platform-support/matrix/:deviceType` | GET | Support info for one device type |
-| `/platform-support/guides` | GET | All parental-control setup guides |
-| `/platform-support/guides/:platform` | GET | Setup guide for PLAYSTATION / NINTENDO / XBOX / SMART_TV / ROUTER |
+1. Unknown source IP → **ALLOW**
+2. Device status `BLOCKED` → **BLOCK** (reason: `MANUAL_BLOCK`)
+3. `internetLocked = true` → **BLOCK** (reason: `INTERNET_LOCKED`)
+4. STRICT MODE: known DoH/VPN resolver → **BLOCK** (reason: `STRICT_MODE_DOH`)
+5. Domain or parent domain in `BlockedDomain` table → **BLOCK** (reason: `DOMAIN_BLOCKED`)
+6. Active session expired → **BLOCK** (reason: `TIME_LIMIT_EXCEEDED`)
+7. Default → **ALLOW**
 
-## Testing
+### STRICT MODE
+
+Set `STRICT_MODE=true` to block well-known DNS-over-HTTPS and public resolver endpoints before any other rule. This prevents children from escaping DNS filtering by switching to a hardcoded resolver.
+
+Blocked in strict mode: `dns.google`, `cloudflare-dns.com`, `one.one.one.one`, `nextdns.io`, `doh.opendns.com`, `dns.quad9.net`, and their subdomains.
+
+---
+
+## 🔒 Security
+
+| Layer | Implementation |
+|-------|----------------|
+| **Authentication** | JWT access (15 min) + refresh (7 day), httpOnly cookies in prod |
+| **Password hashing** | bcrypt with 12 salt rounds |
+| **Account lockout** | 5 failed logins → 15-minute lockout |
+| **Rate limiting** | 5/min login, 10/min register, 100/min general (per IP) |
+| **HTTP headers** | Helmet — CSP, HSTS, X-Frame-Options, etc. |
+| **Input validation** | `class-validator` whitelist — unknown fields are rejected |
+| **OAuth token storage** | AES-256-CBC encrypted at rest |
+| **Role-based access** | PARENT · CHILD_DEVICE · GATEWAY · ADMIN guards |
+| **Bypass detection** | Flags devices that stop querying DNS while locked |
+| **Audit trail** | Every enforcement and admin action logged to `AuditLog` |
+
+---
+
+## 🗂 Database Schema
+
+20 Prisma models, PostgreSQL 16. Key relationships:
+
+```
+User (Parent)
+ ├── Child[]
+ │    ├── Device[]
+ │    │    ├── Session[]
+ │    │    ├── UsageLog[]
+ │    │    └── Command[] ──▶ CommandAck[]
+ │    ├── Rule[]
+ │    └── CategoryBlock[]
+ ├── Gateway[]
+ ├── OAuthAccount[]
+ ├── NotificationEvent[]
+ ├── AuditLog[]
+ ├── Subscription
+ └── PushToken[]
+```
+
+Run `npx prisma studio` to browse the database in a local UI.
+
+---
+
+## 🧪 Testing
 
 ```bash
 # Run all tests
 npm test
 
-# Run with coverage
+# Watch mode
+npm run test:watch
+
+# Coverage report
 npm run test:cov
 
-# Run specific test file
+# Specific test file
 npx jest test/sessions.spec.ts
 npx jest test/enforcement.spec.ts
 ```
 
-### Test Coverage
+Test coverage includes session time calculation, daily limit enforcement, adapter selection, Android command creation, iOS rule sync, gateway fallback, offline console behaviour, and scheduler expiration logic.
 
-Tests cover:
-- Session remaining time calculation
-- Daily limit exceeded prevention
-- Adapter selection by device type
-- Android command creation
-- iOS rule sync
-- Gateway block fallback (no gateway assigned)
-- Offline unsupported console behavior (PlayStation, Smart TV)
-- Scheduler session expiration detection
+---
 
-## Security
+## 🚢 Deployment
 
-- **JWT** access + refresh tokens with bcrypt password hashing
-- **Helmet** for HTTP security headers
-- **Rate limiting** (100 req/min via @nestjs/throttler)
-- **Validation** with class-validator (whitelist + forbidNonWhitelisted)
-- **Role-based access** (PARENT, CHILD_DEVICE, GATEWAY)
-- **Encrypted token storage** (AES-256-CBC for OAuth tokens)
-- **Gateway token auth** for router/Raspberry Pi communication
-- **Audit logging** for all enforcement actions
+### Railway
 
-## Deployment Guide
+The repo ships with `railway.toml`. Connect to a Railway project, add environment variables, and Railway will build from the Dockerfile automatically.
+
+```bash
+# Deploy via Railway CLI
+railway up
+```
+
+### Docker
+
+```bash
+# Build image
+docker build -t guardtime-backend .
+
+# Run with environment file
+docker run --env-file .env -p 3000:3000 guardtime-backend
+```
+
+The Dockerfile uses a two-stage build (builder + runner) to produce a minimal production image. The entry command runs `prisma migrate deploy` before starting the server so deployments are always in sync with the schema.
 
 ### Production Checklist
 
-1. **Environment variables**: Copy `.env.example` to `.env` and set all values. **Never use defaults in production.**
-   - Generate 64-char random strings for `JWT_SECRET` and `JWT_REFRESH_SECRET`
-   - Set `ENCRYPTION_KEY` to exactly 32 characters
-   - Configure `MICROSOFT_OAUTH_*` for Xbox integration
-   - Set `FCM_SERVER_KEY` for push notifications
-   - Set `NODE_ENV=production`
+- [ ] Generate a 64-character random `JWT_SECRET` and `JWT_REFRESH_SECRET` (different values)
+- [ ] Set `ENCRYPTION_KEY` to exactly 32 characters
+- [ ] Set `NODE_ENV=production`
+- [ ] Set `CORS_ORIGINS` to your production frontend URLs
+- [ ] Use a managed PostgreSQL service with SSL and automated backups
+- [ ] Use a managed Redis service with `maxmemory-policy noeviction`
+- [ ] Terminate TLS at a reverse proxy (nginx, Caddy, AWS ALB) — never expose Node directly
+- [ ] Enable `STRICT_MODE=true` in production
+- [ ] Configure FCM credentials for push notifications
 
-2. **Database**: Use a managed PostgreSQL service (AWS RDS, Supabase, Neon) or self-host with SSL enabled.
-   - Run `npx prisma migrate deploy` on every deployment
-   - Enable connection pooling (PgBouncer or Prisma Accelerate)
+---
 
-3. **Redis**: Use a managed Redis service (AWS ElastiCache, Upstash) or self-host with persistence enabled.
-   - BullMQ requires Redis for command delivery queues
-   - Configure maxmemory-policy to `noeviction`
-
-4. **Docker deployment**:
-   ```bash
-   # Build and push image
-   docker build -t parental-control-backend .
-   docker push your-registry/parental-control-backend
-
-   # On server
-   docker-compose -f docker-compose.prod.yml up -d
-   ```
-
-5. **Health checks**: The server exposes `/` with a basic response. Add a health endpoint if needed.
-
-6. **SSL/TLS**: Use a reverse proxy (nginx, Caddy, AWS ALB) for HTTPS termination. Never expose the app directly.
-
-7. **Monitoring**: 
-   - Enable Prisma Query logging in development
-   - Use `@nestjs/terminus` for health checks (recommended)
-   - Monitor BullMQ queue status via `CommandQueueService.getQueueStatus()`
-
-8. **Scaling**:
-   - The app is stateless (JWT tokens, no server-side sessions)
-   - Scale horizontally behind a load balancer
-   - Ensure all instances share the same Redis and PostgreSQL
-
-### Database Schema
-
-The Prisma schema defines 15 models with the following relationships:
-- `User` → `Child[]`, `Device[]`, `Session[]`, `Gateway[]`, `OAuthAccount[]`, `NotificationEvent[]`, `AuditLog[]`, `Subscription?`
-- `Child` → `Device[]`, `Rule[]`, `Session[]`, `UsageLog[]`
-- `Device` → `Session[]`, `UsageLog[]`, `Command[]`
-- `Command` → `CommandAck[]`
-- `Gateway` → `Device[]`
-
-Run `npx prisma studio` to explore the database visually.
-
-### Enforcement Flow
-
-```
-Parent starts session → SessionsService.start()
-  → Check daily limit (RulesService)
-  → Create session record
-  → EnforcementService.blockDevice() or syncRules()
-    → Select adapter by device.controlMethod
-    → AndroidAgentAdapter: create Command + enqueue to BullMQ
-    → IosScreenTimeAdapter: create Command (requires Apple entitlement)
-    → XboxAdapter: check Microsoft OAuth, fallback to gateway
-    → NetworkGatewayAdapter: block internet via gateway
-    → MockAdapter: return success (dev/test only)
-
-Scheduler (every minute)
-  → Check active sessions → expire if remaining <= 0
-  → Check bedtime rules → block devices at bedtime
-  → Send 10-minute warning notifications
-  → Log all actions to AuditLog
-
-Child Agent (polling)
-  → GET /child/commands → receive pending commands
-  → POST /child/command-ack → acknowledge command
-  → POST /child/usage-log → report app usage
-  → POST /child/status → report online status + active app
-  → POST /child/request-more-time → request extension
-```
-
-## DNS Filtering
-
-### Architecture
-
-```
-Device → DNS Server (port 53) → Backend (/dns/policy/check) → ALLOW/BLOCK
-                                        ↓
-                              Redis Cache (30s TTL)
-                                        ↓
-                              DnsQueryLog (PostgreSQL)
-```
-
-### Backend Endpoint
-
-```
-GET /dns/policy/check?sourceIp=192.168.1.100&domain=youtube.com
-```
-
-Response:
-```json
-{
-  "action": "BLOCK",
-  "blockIp": "0.0.0.0",
-  "reason": "DOMAIN_BLOCKED"
-}
-```
-
-### Policy Logic
-
-1. Find device by `sourceIp` (matches `Device.ipAddress` or `Device.dnsSourceIp`)
-2. No device → **ALLOW**
-3. Device status `BLOCKED` → **BLOCK** (reason: `MANUAL_BLOCK`)
-4. Active session expired → **BLOCK** (reason: `TIME_LIMIT_EXCEEDED`)
-5. Domain in `BlockedDomain` table → **BLOCK** (reason: `DOMAIN_BLOCKED`)
-6. Otherwise → **ALLOW**
-
-Domain matching checks parent domains too: `www.youtube.com` also matches `youtube.com`.
-
-### DNS Server (`dns-service/`)
-
-A standalone Node.js DNS server using `dns2`:
-
-- Listens on port 53 (UDP + TCP)
-- Forwards to upstream resolvers (1.1.1.1, 8.8.8.8) on ALLOW
-- Returns `0.0.0.0` (A) / `::` (AAAA) on BLOCK
-- Fail-open: if backend is unreachable, ALLOW by default
+## 📜 Scripts
 
 ```bash
-# Start DNS service
-cd dns-service
-npm install
-cp .env.example .env
-npm run dev
-
-# Test
-nslookup youtube.com 127.0.0.1
-nslookup google.com 127.0.0.1
+npm run start:dev      # Development server with hot reload
+npm run start:prod     # Production server from compiled dist
+npm run build          # Compile TypeScript
+npm run lint           # ESLint with auto-fix
+npm test               # Jest unit tests
+npm run test:cov       # Tests with coverage
+npm run prisma:migrate # Run a new migration
+npm run prisma:studio  # Open Prisma Studio
+npm run docker:up      # docker-compose up -d
+npm run docker:down    # docker-compose down
 ```
 
-### Blocked Domain Management
+---
 
-Add blocked domains directly via Prisma or a future admin endpoint:
+## 📄 License
 
-```sql
-INSERT INTO blocked_domains (id, domain, category) VALUES (gen_random_uuid(), 'youtube.com', 'streaming');
-INSERT INTO blocked_domains (id, domain, category) VALUES (gen_random_uuid(), 'tiktok.com', 'social');
-```
-
-### Device DNS Configuration
-
-Set `dnsSourceIp` on each device to the IP the DNS server sees (the device's LAN IP):
-
-```sql
-UPDATE devices SET dns_source_ip = '192.168.1.100', dns_configured = true WHERE id = 'device-uuid';
-```
-
-Then configure the device/router to use the DNS server as its primary DNS.
-
-## License
-
-UNLICENSED — Private project
+Private — All rights reserved. Not for redistribution.

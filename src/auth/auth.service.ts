@@ -10,10 +10,12 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../common/prisma.service';
 import { RegisterDto, LoginDto, RefreshTokenDto } from '../common/dto/auth.dto';
 import * as bcrypt from 'bcrypt';
+import { createHash } from 'crypto';
 import { Role } from '@prisma/client';
 
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MINUTES = 15;
+const BCRYPT_ROUNDS = 12;
 
 @Injectable()
 export class AuthService {
@@ -48,37 +50,32 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto) {
-    const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    const email = dto.email.trim().toLowerCase();
+    const existing = await this.prisma.user.findUnique({ where: { email } });
     if (existing) {
       throw new ConflictException('Email already registered');
     }
-    const passwordHash = await bcrypt.hash(dto.password, 12);
+    const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
+
+    // Public self-registration always creates a PARENT. Never trust a
+    // client-supplied role — elevated roles are provisioned out-of-band.
     const user = await this.prisma.user.create({
       data: {
-        email: dto.email,
+        email,
         passwordHash,
         firstName: dto.firstName,
         lastName: dto.lastName,
-        role: dto.role || Role.PARENT,
+        role: Role.PARENT,
+        subscription: { create: { plan: 'FREE' } },
       },
     });
 
-    if (user.role === Role.PARENT) {
-      await this.prisma.subscription.create({
-        data: { userId: user.id, plan: 'FREE' },
-      });
-    }
-
-    const tokens = await this.generateTokens(user.id, user.email, user.role);
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { refreshToken: tokens.refreshToken },
-    });
-    return tokens;
+    return this.issueTokens(user.id, user.email, user.role);
   }
 
   async login(dto: LoginDto) {
-    const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    const email = dto.email.trim().toLowerCase();
+    const user = await this.prisma.user.findUnique({ where: { email } });
 
     if (!user) {
       // Run timing-safe comparison to prevent timing attacks on email enumeration
@@ -115,7 +112,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    // Successful login: reset failed attempts
+    // Successful login: reset failed attempts (only write when needed)
     if (user.failedLoginAttempts && user.failedLoginAttempts > 0) {
       await this.prisma.user.update({
         where: { id: user.id },
@@ -126,32 +123,26 @@ export class AuthService {
       });
     }
 
-    const tokens = await this.generateTokens(user.id, user.email, user.role);
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { refreshToken: tokens.refreshToken },
-    });
-    return tokens;
+    return this.issueTokens(user.id, user.email, user.role);
   }
 
   async refresh(dto: RefreshTokenDto) {
+    let payload: { sub: string };
     try {
-      const payload = await this.jwtService.verifyAsync(dto.refreshToken, {
+      payload = await this.jwtService.verifyAsync(dto.refreshToken, {
         secret: this.jwtRefreshSecret,
       });
-      const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
-      if (!user || user.refreshToken !== dto.refreshToken) {
-        throw new UnauthorizedException('Invalid refresh token');
-      }
-      const tokens = await this.generateTokens(user.id, user.email, user.role);
-      await this.prisma.user.update({
-        where: { id: user.id },
-        data: { refreshToken: tokens.refreshToken },
-      });
-      return tokens;
     } catch {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
+
+    const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+    // Compare against the stored HASH — refresh tokens are never persisted in
+    // plaintext, so a DB leak does not yield usable tokens.
+    if (!user || !user.refreshToken || user.refreshToken !== this.hashToken(dto.refreshToken)) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+    return this.issueTokens(user.id, user.email, user.role);
   }
 
   async logout(userId: string) {
@@ -161,7 +152,21 @@ export class AuthService {
     });
   }
 
-  private async generateTokens(sub: string, email: string, role: string) {
+  /** Generate a fresh token pair and persist the rotated refresh-token hash. */
+  private async issueTokens(sub: string, email: string, role: Role) {
+    const tokens = await this.generateTokens(sub, email, role);
+    await this.prisma.user.update({
+      where: { id: sub },
+      data: { refreshToken: this.hashToken(tokens.refreshToken) },
+    });
+    return tokens;
+  }
+
+  private hashToken(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
+  }
+
+  private async generateTokens(sub: string, email: string, role: Role) {
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(
         { sub, email, role },
@@ -172,6 +177,6 @@ export class AuthService {
         { secret: this.jwtRefreshSecret, expiresIn: this.jwtRefreshExpiresIn },
       ),
     ]);
-    return { accessToken, refreshToken, userId: sub, role: role as Role };
+    return { accessToken, refreshToken, userId: sub, role };
   }
 }

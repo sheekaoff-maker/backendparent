@@ -1,4 +1,10 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  OnModuleInit,
+} from '@nestjs/common';
 import { BlockCategory } from '@prisma/client';
 import { PrismaService } from '../common/prisma.service';
 import { SEED_DOMAINS } from './seed-domains';
@@ -71,7 +77,27 @@ export class CategoriesService implements OnModuleInit {
     return this.prisma.blockedDomain.delete({ where: { id } });
   }
 
-  async setCategoryBlock(childId: string, category: BlockCategory, active: boolean, reason?: string) {
+  /**
+   * Verify the child belongs to the requesting parent. Prevents IDOR where a
+   * parent could mutate/read another family's category blocks by guessing an id.
+   */
+  private async assertChildOwnership(parentId: string, childId: string) {
+    const child = await this.prisma.child.findUnique({
+      where: { id: childId },
+      select: { parentId: true },
+    });
+    if (!child) throw new NotFoundException('Child not found');
+    if (child.parentId !== parentId) throw new ForbiddenException('Not your child');
+  }
+
+  async setCategoryBlock(
+    parentId: string,
+    childId: string,
+    category: BlockCategory,
+    active: boolean,
+    reason?: string,
+  ) {
+    await this.assertChildOwnership(parentId, childId);
     return this.prisma.categoryBlock.upsert({
       where: { childId_category: { childId, category } },
       update: { active, reason },
@@ -85,7 +111,8 @@ export class CategoriesService implements OnModuleInit {
     });
   }
 
-  async listCategoryBlocks(childId: string) {
+  async listCategoryBlocks(parentId: string, childId: string) {
+    await this.assertChildOwnership(parentId, childId);
     return this.prisma.categoryBlock.findMany({ where: { childId } });
   }
 

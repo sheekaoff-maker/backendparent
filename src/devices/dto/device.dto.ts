@@ -1,4 +1,13 @@
-import { IsString, IsOptional, IsEnum, IsUUID } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  IsEnum,
+  IsUUID,
+  IsIP,
+  IsMACAddress,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { DeviceType, ControlMethod } from '@prisma/client';
 
@@ -7,8 +16,10 @@ export class CreateDeviceDto {
   @IsUUID()
   childId: string;
 
-  @ApiProperty({ example: 'John\'s iPad' })
+  @ApiProperty({ example: "John's iPad" })
   @IsString()
+  @MinLength(1)
+  @MaxLength(80)
   name: string;
 
   @ApiProperty({ enum: DeviceType })
@@ -18,16 +29,17 @@ export class CreateDeviceDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MaxLength(60)
   platform?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ example: 'AA:BB:CC:DD:EE:FF' })
   @IsOptional()
-  @IsString()
+  @IsMACAddress()
   macAddress?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ example: '192.168.1.45' })
   @IsOptional()
-  @IsString()
+  @IsIP()
   ipAddress?: string;
 
   @ApiProperty({ enum: ControlMethod, default: ControlMethod.MOCK })
@@ -45,6 +57,8 @@ export class UpdateDeviceDto {
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
+  @MinLength(1)
+  @MaxLength(80)
   name?: string;
 
   @ApiPropertyOptional()
@@ -52,14 +66,14 @@ export class UpdateDeviceDto {
   @IsUUID()
   childId?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ example: 'AA:BB:CC:DD:EE:FF' })
   @IsOptional()
-  @IsString()
+  @IsMACAddress()
   macAddress?: string;
 
-  @ApiPropertyOptional()
+  @ApiPropertyOptional({ example: '192.168.1.45' })
   @IsOptional()
-  @IsString()
+  @IsIP()
   ipAddress?: string;
 
   @ApiPropertyOptional()

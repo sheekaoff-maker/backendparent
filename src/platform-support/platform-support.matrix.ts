@@ -24,7 +24,7 @@ export const PLATFORM_SUPPORT_MATRIX: Record<DeviceType, PlatformSupport> = {
     offlineControlSupported: true,
     offlineControlMethod: 'ANDROID_AGENT',
     recommendedControlMethod: 'ANDROID_AGENT',
-    notes: 'Full control via child agent app with Device Admin privileges. Can block apps, lock device, enforce bedtime.',
+    notes: 'Child agent (Device Admin) is the reliable control — blocks apps, locks device, enforces bedtime, and works on cellular. Device DNS is weak: Android Private DNS is device-wide and child-changeable, and some apps use their own DoH.',
   },
   ANDROID_TABLET: {
     deviceType: 'ANDROID_TABLET',
@@ -32,7 +32,7 @@ export const PLATFORM_SUPPORT_MATRIX: Record<DeviceType, PlatformSupport> = {
     offlineControlSupported: true,
     offlineControlMethod: 'ANDROID_AGENT',
     recommendedControlMethod: 'ANDROID_AGENT',
-    notes: 'Same as Android Phone — full control via agent app.',
+    notes: 'Same as Android Phone — agent is primary; Private DNS / app DoH can bypass device-level DNS.',
   },
   IPHONE: {
     deviceType: 'IPHONE',
@@ -40,7 +40,7 @@ export const PLATFORM_SUPPORT_MATRIX: Record<DeviceType, PlatformSupport> = {
     offlineControlSupported: true,
     offlineControlMethod: 'IOS_SCREEN_TIME',
     recommendedControlMethod: 'IOS_SCREEN_TIME',
-    notes: 'Requires Apple Family Controls + ManagedSettings entitlement. Limited to what Apple allows.',
+    notes: 'Screen Time (Family Sharing) is the real control. DNS filtering only applies if a DNS profile is installed AND iCloud Private Relay is off; per-Wi-Fi DNS never covers cellular. App-level DoH can still bypass DNS.',
   },
   IPAD: {
     deviceType: 'IPAD',
@@ -48,7 +48,7 @@ export const PLATFORM_SUPPORT_MATRIX: Record<DeviceType, PlatformSupport> = {
     offlineControlSupported: true,
     offlineControlMethod: 'IOS_SCREEN_TIME',
     recommendedControlMethod: 'IOS_SCREEN_TIME',
-    notes: 'Same as iPhone — requires Apple entitlement.',
+    notes: 'Same as iPhone — Screen Time is primary; iCloud Private Relay and app DoH bypass device DNS.',
   },
   XBOX: {
     deviceType: 'XBOX',
@@ -64,7 +64,7 @@ export const PLATFORM_SUPPORT_MATRIX: Record<DeviceType, PlatformSupport> = {
     offlineControlSupported: false,
     offlineControlMethod: 'NOT_SUPPORTED',
     recommendedControlMethod: 'DNS_FILTERING + OFFICIAL_PARENTAL_GUIDE',
-    notes: 'Backend can block ALL ONLINE PSN traffic via DNS. Offline single-player games cannot be stopped by us — parent must use official Sony parental controls (PSN Family / PS5 Family Manager).',
+    notes: 'Blocks online PSN traffic via DNS (PS5/PS5 Slim/PS4; Portal streams from a PS5). Set console IPv6 to Off so it does not bypass IPv4 DNS. Offline single-player games cannot be stopped — use Sony Family / PS5 Family Manager.',
   },
   NINTENDO: {
     deviceType: 'NINTENDO',
@@ -72,7 +72,7 @@ export const PLATFORM_SUPPORT_MATRIX: Record<DeviceType, PlatformSupport> = {
     offlineControlSupported: false,
     offlineControlMethod: 'NOT_SUPPORTED',
     recommendedControlMethod: 'DNS_FILTERING + OFFICIAL_PARENTAL_GUIDE',
-    notes: 'Online play / eShop / cloud saves blocked via DNS. Offline games on Switch require Nintendo Switch Parental Controls app — backend cannot stop them.',
+    notes: 'Online play / eShop / cloud saves blocked via DNS (Switch 2, Switch, OLED, Lite — same flow). Offline games and Switch 2 GameChat need the Nintendo Switch Parental Controls app — backend cannot stop them.',
   },
   STEAM_DECK: {
     deviceType: 'STEAM_DECK',
@@ -87,8 +87,16 @@ export const PLATFORM_SUPPORT_MATRIX: Record<DeviceType, PlatformSupport> = {
     onlineControl: true,
     offlineControlSupported: false,
     offlineControlMethod: 'NOT_SUPPORTED',
-    recommendedControlMethod: 'DNS_FILTERING',
-    notes: 'Online services (Steam, Epic, Battle.net, Discord) blocked via DNS. For full PC control, install a Windows/macOS parental agent (not provided here).',
+    recommendedControlMethod: 'DNS_FILTERING + OFFICIAL_PARENTAL_GUIDE',
+    notes: 'Windows: DNS filtering works only if the child uses a Standard (non-admin) account and browser DoH is disabled. Pair with Microsoft Family Safety for app/time limits. IPv6 and browser DoH+ECH can bypass DNS.',
+  },
+  MAC: {
+    deviceType: 'MAC',
+    onlineControl: true,
+    offlineControlSupported: false,
+    offlineControlMethod: 'NOT_SUPPORTED',
+    recommendedControlMethod: 'DNS_FILTERING + OFFICIAL_PARENTAL_GUIDE',
+    notes: 'macOS: Screen Time (Family Sharing) is the stronger control. Device DNS filters only with iCloud Private Relay off and the child on a Standard account; browser DoH still bypasses it.',
   },
   SMART_TV: {
     deviceType: 'SMART_TV',

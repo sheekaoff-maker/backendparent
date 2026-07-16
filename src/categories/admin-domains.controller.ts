@@ -1,12 +1,18 @@
 import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Role } from '@prisma/client';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
 import { CategoriesService } from './categories.service';
 import { ClassifyDomainDto } from './dto/category.dto';
 
+// These endpoints mutate the GLOBAL blocklist (affects every tenant), so they
+// are restricted to ADMIN. A regular authenticated parent must not reach them.
 @ApiTags('Domain Learning')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.ADMIN)
 @Controller('admin/domains')
 export class AdminDomainsController {
   constructor(private readonly service: CategoriesService) {}
