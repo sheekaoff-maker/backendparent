@@ -136,13 +136,27 @@ export class AuthService {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
+    const presentedHash = this.hashToken(dto.refreshToken);
     const user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
     // Compare against the stored HASH — refresh tokens are never persisted in
     // plaintext, so a DB leak does not yield usable tokens.
-    if (!user || !user.refreshToken || user.refreshToken !== this.hashToken(dto.refreshToken)) {
+    if (!user || !user.refreshToken || user.refreshToken !== presentedHash) {
       throw new UnauthorizedException('Invalid refresh token');
     }
-    return this.issueTokens(user.id, user.email, user.role);
+
+    const tokens = await this.generateTokens(user.id, user.email, user.role);
+    // Atomic compare-and-swap rotation: the new hash is written ONLY if the
+    // stored hash still equals the presented one. A replayed or concurrent
+    // refresh with the same token matches zero rows → rejected. This closes the
+    // read-then-write replay window that a plain findUnique+update leaves open.
+    const swap = await this.prisma.user.updateMany({
+      where: { id: user.id, refreshToken: presentedHash },
+      data: { refreshToken: this.hashToken(tokens.refreshToken) },
+    });
+    if (swap.count === 0) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+    return tokens;
   }
 
   async logout(userId: string) {

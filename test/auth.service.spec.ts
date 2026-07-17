@@ -27,6 +27,7 @@ function buildPrisma() {
       findUnique: jest.fn(),
       create: jest.fn(),
       update: jest.fn().mockResolvedValue({}),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     subscription: { create: jest.fn() },
   } as any;
@@ -153,7 +154,7 @@ describe('AuthService', () => {
       ).rejects.toBeInstanceOf(UnauthorizedException);
     });
 
-    it('rotates tokens when the presented token hash matches', async () => {
+    it('rotates tokens when the presented token hash matches (atomic CAS wins)', async () => {
       jwt.verifyAsync.mockResolvedValue({ sub: 'u1' });
       prisma.user.findUnique.mockResolvedValue({
         id: 'u1',
@@ -161,8 +162,27 @@ describe('AuthService', () => {
         role: Role.PARENT,
         refreshToken: sha256('presented-token'),
       });
+      prisma.user.updateMany.mockResolvedValue({ count: 1 });
       const result = await service.refresh({ refreshToken: 'presented-token' } as any);
       expect(result.accessToken).toBe('access-token');
+      // The rotation is a conditional update guarded by the presented hash.
+      const where = prisma.user.updateMany.mock.calls[0][0].where;
+      expect(where).toMatchObject({ id: 'u1', refreshToken: sha256('presented-token') });
+    });
+
+    it('rejects a replayed/concurrent refresh that loses the CAS (count 0)', async () => {
+      jwt.verifyAsync.mockResolvedValue({ sub: 'u1' });
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'u1',
+        email: 'a@b.com',
+        role: Role.PARENT,
+        refreshToken: sha256('presented-token'),
+      });
+      // The row's token was already rotated by a competing request → 0 rows match.
+      prisma.user.updateMany.mockResolvedValue({ count: 0 });
+      await expect(
+        service.refresh({ refreshToken: 'presented-token' } as any),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
     });
   });
 });
