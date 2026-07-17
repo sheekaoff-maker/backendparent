@@ -10,7 +10,7 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../common/prisma.service';
 import { RegisterDto, LoginDto, RefreshTokenDto } from '../common/dto/auth.dto';
 import * as bcrypt from 'bcrypt';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { Role } from '@prisma/client';
 
 const MAX_FAILED_ATTEMPTS = 5;
@@ -181,13 +181,17 @@ export class AuthService {
   }
 
   private async generateTokens(sub: string, email: string, role: Role) {
+    // A unique jti per token guarantees every issuance is byte-distinct. Without
+    // it, JWT `iat` has only 1-second resolution, so two tokens minted for the
+    // same user in the same second are IDENTICAL — making refresh rotation a
+    // no-op (the "new" hash equals the old one) and leaving a ~1s replay window.
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(
-        { sub, email, role },
+        { sub, email, role, jti: randomUUID() },
         { secret: this.jwtSecret, expiresIn: this.jwtExpiresIn },
       ),
       this.jwtService.signAsync(
-        { sub, email, role },
+        { sub, email, role, jti: randomUUID() },
         { secret: this.jwtRefreshSecret, expiresIn: this.jwtRefreshExpiresIn },
       ),
     ]);
