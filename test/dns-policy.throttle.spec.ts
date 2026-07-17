@@ -37,8 +37,16 @@ describe('DnsPolicyController rate-limiting', () => {
 
   beforeEach(async () => {
     moduleRef = await Test.createTestingModule({
-      // Low limit so the "throttling still works" contrast is quick and obvious.
-      imports: [ThrottlerModule.forRoot([{ ttl: 60_000, limit: 5 }])],
+      // Mirror the PRODUCTION config exactly: three named throttlers. The
+      // strictest (auth_login, 5/60) is what previously leaked through a bare
+      // @SkipThrottle() and kept the DNS route capped at 5/min.
+      imports: [
+        ThrottlerModule.forRoot([
+          { ttl: 60_000, limit: 100 },
+          { ttl: 60_000, limit: 5, name: 'auth_login' },
+          { ttl: 60_000, limit: 10, name: 'auth_register' },
+        ]),
+      ],
       providers: [ThrottlerGuard],
     }).compile();
     guard = moduleRef.get(ThrottlerGuard);
