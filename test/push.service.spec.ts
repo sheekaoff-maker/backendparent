@@ -1,5 +1,4 @@
 import { PushService } from '../src/push/push.service';
-import { FcmSender } from '../src/push/fcm.sender';
 
 function buildPrisma() {
   return {
@@ -35,52 +34,43 @@ describe('PushService', () => {
     });
   });
 
-  it('sendToUser does nothing when the user has no tokens', async () => {
-    const send = jest.fn();
-    const service = new PushService(prisma, { send } as any);
+  it('sendToUser does nothing when the user has no registered devices (offline device)', async () => {
+    const sendMulticast = jest.fn();
+    const service = new PushService(prisma, { sendMulticast } as any);
     await service.sendToUser('u1', { title: 'x', body: 'y' });
-    expect(send).not.toHaveBeenCalled();
+    expect(sendMulticast).not.toHaveBeenCalled();
   });
 
-  it('sendToUser prunes tokens FCM reports as invalid', async () => {
+  it('sendToUser fans out via a single multicast call and prunes invalid tokens', async () => {
     prisma.pushToken.findMany.mockResolvedValue([{ token: 'good' }, { token: 'stale' }]);
-    const fcm = {
-      send: jest.fn(async (token: string) => (token === 'stale' ? 'invalid' : 'sent')),
-    } as any;
-    const service = new PushService(prisma, fcm);
+    const sendMulticast = jest
+      .fn()
+      .mockResolvedValue({ sent: ['good'], invalid: ['stale'], errored: [], skipped: false });
+    const service = new PushService(prisma, { sendMulticast } as any);
 
     await service.sendToUser('u1', { title: 'x', body: 'y' });
 
-    expect(fcm.send).toHaveBeenCalledTimes(2);
+    expect(sendMulticast).toHaveBeenCalledTimes(1);
+    expect(sendMulticast).toHaveBeenCalledWith(['good', 'stale'], { title: 'x', body: 'y' });
     expect(prisma.pushToken.deleteMany).toHaveBeenCalledWith({
       where: { token: { in: ['stale'] } },
     });
   });
 
+  it('sendToUser does not touch the token table when nothing is invalid', async () => {
+    prisma.pushToken.findMany.mockResolvedValue([{ token: 'good' }]);
+    const sendMulticast = jest
+      .fn()
+      .mockResolvedValue({ sent: ['good'], invalid: [], errored: [], skipped: false });
+    const service = new PushService(prisma, { sendMulticast } as any);
+
+    await service.sendToUser('u1', { title: 'x', body: 'y' });
+
+    expect(prisma.pushToken.deleteMany).not.toHaveBeenCalled();
+  });
+
   it('deliveryEnabled reflects the sender configuration', () => {
     expect(new PushService(prisma, { isConfigured: true } as any).deliveryEnabled).toBe(true);
     expect(new PushService(prisma, { isConfigured: false } as any).deliveryEnabled).toBe(false);
-  });
-});
-
-describe('FcmSender', () => {
-  const KEYS = ['FCM_PROJECT_ID', 'FCM_CLIENT_EMAIL', 'FCM_PRIVATE_KEY'];
-  const saved: Record<string, string | undefined> = {};
-
-  beforeAll(() => {
-    for (const k of KEYS) saved[k] = process.env[k];
-  });
-  afterAll(() => {
-    for (const k of KEYS) {
-      if (saved[k] === undefined) delete process.env[k];
-      else process.env[k] = saved[k];
-    }
-  });
-
-  it('is not configured and skips sending when the service account is absent', async () => {
-    for (const k of KEYS) delete process.env[k];
-    const sender = new FcmSender();
-    expect(sender.isConfigured).toBe(false);
-    await expect(sender.send('tok', { title: 't', body: 'b' })).resolves.toBe('skipped');
   });
 });

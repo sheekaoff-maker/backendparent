@@ -2,11 +2,13 @@ import { Module } from '@nestjs/common';
 import { CacheModule } from '@nestjs/cache-manager';
 import { redisStore } from 'cache-manager-redis-yet';
 import { getRedisConfig } from '../common/redis-config';
+import { PushModule } from '../push/push.module';
 import { HealthController } from './health.controller';
 import { HealthService } from './health.service';
 
 @Module({
   imports: [
+    PushModule,
     CacheModule.registerAsync({
       useFactory: () => {
         const cfg = getRedisConfig();

@@ -2,8 +2,10 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 import { PrismaService } from '../common/prisma.service';
+import { FirebaseService } from '../push/firebase.service';
 
 type ComponentStatus = 'up' | 'down';
+type FirebaseComponentStatus = 'up' | 'down' | 'not_configured';
 
 export interface ReadinessReport {
   status: 'ok' | 'degraded';
@@ -11,6 +13,7 @@ export interface ReadinessReport {
     database: ComponentStatus;
     redis: ComponentStatus;
     api: ComponentStatus;
+    firebase: FirebaseComponentStatus;
   };
   timestamp: string;
 }
@@ -22,26 +25,37 @@ export class HealthService {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(CACHE_MANAGER) private readonly cache: Cache,
+    private readonly firebase: FirebaseService,
   ) {}
 
   /**
-   * Deep readiness probe: verifies the two dependencies the platform cannot
-   * run without. Used by orchestrators (Railway/k8s) and surfaced to parents
-   * as a "System status" indicator — relevant here because filtering fails
-   * open, so a degraded backend means protection may be silently reduced.
+   * Deep readiness probe: verifies the dependencies the platform relies on.
+   * Database/Redis are required; Firebase is optional (push is a
+   * degrade-gracefully feature) so its absence does NOT flip overall status
+   * to degraded — only an actual init ERROR (bad credential) does, since that
+   * indicates a misconfiguration worth fixing, not a deliberate opt-out.
    */
   async readiness(): Promise<ReadinessReport> {
-    const [database, redis] = await Promise.all([
-      this.checkDatabase(),
-      this.checkRedis(),
-    ]);
+    const [database, redis] = await Promise.all([this.checkDatabase(), this.checkRedis()]);
+    const firebase = this.checkFirebase();
 
-    const allUp = database === 'up' && redis === 'up';
+    const allUp = database === 'up' && redis === 'up' && firebase !== 'down';
     return {
       status: allUp ? 'ok' : 'degraded',
-      components: { database, redis, api: 'up' },
+      components: { database, redis, api: 'up', firebase },
       timestamp: new Date().toISOString(),
     };
+  }
+
+  private checkFirebase(): FirebaseComponentStatus {
+    switch (this.firebase.initStatus) {
+      case 'ready':
+        return 'up';
+      case 'error':
+        return 'down';
+      default:
+        return 'not_configured';
+    }
   }
 
   private async checkDatabase(): Promise<ComponentStatus> {

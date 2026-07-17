@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { createSign } from 'crypto';
+import type { BatchResponse, Message, MulticastMessage } from 'firebase-admin/messaging';
+import { FirebaseService } from './firebase.service';
 
 export type FcmSendResult = 'sent' | 'invalid' | 'skipped' | 'error';
 
@@ -9,134 +10,164 @@ export interface FcmMessage {
   data?: Record<string, string>;
 }
 
-const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
-const FCM_SCOPE = 'https://www.googleapis.com/auth/firebase.messaging';
+export interface MulticastResult {
+  sent: string[];
+  invalid: string[];
+  errored: string[];
+  skipped: boolean;
+}
+
+const MAX_RETRIES = 2;
+const RETRY_DELAY_MS = [300, 900];
+
+// FCM error codes that are safe to retry (transient/infra) vs. codes that mean
+// the token itself is dead and must be pruned, not retried.
+const TRANSIENT_CODES = new Set([
+  'messaging/internal-error',
+  'messaging/server-unavailable',
+  'messaging/unknown-error',
+  'messaging/timeout',
+  'messaging/quota-exceeded',
+]);
+const INVALID_TOKEN_CODES = new Set([
+  'messaging/registration-token-not-registered',
+  'messaging/invalid-registration-token',
+  'messaging/invalid-argument',
+  'messaging/unregistered',
+  'messaging/mismatched-credential',
+]);
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function errorCode(err: unknown): string {
+  return (err as { code?: string })?.code ?? 'unknown';
+}
 
 /**
- * Real Firebase Cloud Messaging HTTP v1 client.
+ * Real Firebase Cloud Messaging client, backed by the official `firebase-admin`
+ * SDK (HTTP v1 under the hood). Delegates initialization to [FirebaseService]
+ * (singleton, initialized once for the process).
  *
- * Uses a service account (FCM_PROJECT_ID / FCM_CLIENT_EMAIL / FCM_PRIVATE_KEY)
- * to mint a short-lived Google OAuth token and POST to the v1 send endpoint.
- * The legacy "server key" API was shut down in 2024, so v1 is the only correct
- * path. No third-party dependency — JWT is signed with Node's crypto.
- *
- * When the service account env is absent this is NOT a mock: `send()` reports
- * `skipped` and the caller stores notifications without pushing. That is the
- * correct behaviour for a deploy that has not wired Firebase yet.
+ * When Firebase is not configured this is NOT a mock: `send()`/`sendMulticast()`
+ * report `skipped` and the caller stores notifications without pushing — the
+ * same graceful-degradation behaviour as before this integration.
  */
 @Injectable()
 export class FcmSender {
   private readonly logger = new Logger(FcmSender.name);
-  private readonly projectId = process.env.FCM_PROJECT_ID;
-  private readonly clientEmail = process.env.FCM_CLIENT_EMAIL;
-  private readonly privateKey = (process.env.FCM_PRIVATE_KEY ?? '').replace(/\\n/g, '\n');
-  private cached: { accessToken: string; expiresAt: number } | null = null;
+
+  constructor(private readonly firebase: FirebaseService) {}
 
   get isConfigured(): boolean {
-    return Boolean(this.projectId && this.clientEmail && this.privateKey);
+    return this.firebase.isReady;
   }
 
+  /** Send to a single token, retrying transient failures. */
   async send(token: string, message: FcmMessage): Promise<FcmSendResult> {
     if (!this.isConfigured) {
       this.logger.debug('FCM not configured — notification stored but not pushed.');
       return 'skipped';
     }
 
-    let accessToken: string;
-    try {
-      accessToken = await this.getAccessToken();
-    } catch (err) {
-      this.logger.error(`FCM auth failed: ${msg(err)}`);
-      return 'error';
-    }
-
-    try {
-      const res = await fetch(
-        `https://fcm.googleapis.com/v1/projects/${this.projectId}/messages:send`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            message: {
-              token,
-              notification: { title: message.title, body: message.body },
-              data: message.data ?? {},
-            },
-          }),
-        },
-      );
-
-      if (res.ok) return 'sent';
-
-      // A 404 / UNREGISTERED / invalid-argument for the token means it is stale
-      // and should be pruned by the caller.
-      const text = await res.text();
-      if (res.status === 404 || /UNREGISTERED|INVALID_ARGUMENT/i.test(text)) {
-        this.logger.debug(`FCM token invalid (${res.status}) — will prune.`);
-        return 'invalid';
-      }
-      this.logger.warn(`FCM send failed ${res.status}: ${text.slice(0, 200)}`);
-      return 'error';
-    } catch (err) {
-      this.logger.error(`FCM send error: ${msg(err)}`);
-      return 'error';
-    }
-  }
-
-  private async getAccessToken(): Promise<string> {
-    const now = Math.floor(Date.now() / 1000);
-    if (this.cached && this.cached.expiresAt > now + 60) {
-      return this.cached.accessToken;
-    }
-
-    const assertion = this.buildSignedJwt(now);
-    const res = await fetch(GOOGLE_TOKEN_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-        assertion,
-      }),
-    });
-    if (!res.ok) {
-      throw new Error(`token endpoint ${res.status}: ${(await res.text()).slice(0, 200)}`);
-    }
-    const json = (await res.json()) as { access_token: string; expires_in: number };
-    this.cached = {
-      accessToken: json.access_token,
-      expiresAt: now + (json.expires_in ?? 3600),
+    const payload: Message = {
+      token,
+      notification: { title: message.title, body: message.body },
+      data: message.data ?? {},
     };
-    return json.access_token;
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        await this.firebase.getMessaging().send(payload);
+        return 'sent';
+      } catch (err) {
+        const code = errorCode(err);
+        if (INVALID_TOKEN_CODES.has(code)) {
+          this.logger.debug(`FCM token invalid (${code}) — will prune.`);
+          return 'invalid';
+        }
+        if (TRANSIENT_CODES.has(code) && attempt < MAX_RETRIES) {
+          this.logger.debug(`FCM transient error (${code}), retry ${attempt + 1}/${MAX_RETRIES}`);
+          await sleep(RETRY_DELAY_MS[attempt] ?? 900);
+          continue;
+        }
+        this.logger.warn(`FCM send failed (${code}): ${msg(err)}`);
+        return 'error';
+      }
+    }
+    return 'error';
   }
 
-  private buildSignedJwt(now: number): string {
-    const header = base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
-    const claims = base64url(
-      JSON.stringify({
-        iss: this.clientEmail,
-        scope: FCM_SCOPE,
-        aud: GOOGLE_TOKEN_URL,
-        iat: now,
-        exp: now + 3600,
-      }),
-    );
-    const signingInput = `${header}.${claims}`;
-    const signature = createSign('RSA-SHA256')
-      .update(signingInput)
-      .sign(this.privateKey, 'base64');
-    return `${signingInput}.${toBase64Url(signature)}`;
+  /**
+   * Send the same message to many tokens at once (a real device's own
+   * registrations, or a broadcast). Uses the SDK's official multicast API,
+   * classifies each result, and retries transient per-token failures.
+   */
+  async sendMulticast(tokens: string[], message: FcmMessage): Promise<MulticastResult> {
+    if (tokens.length === 0) {
+      return { sent: [], invalid: [], errored: [], skipped: false };
+    }
+    if (!this.isConfigured) {
+      this.logger.debug('FCM not configured — notifications stored but not pushed.');
+      return { sent: [], invalid: [], errored: [], skipped: true };
+    }
+
+    let pending = [...tokens];
+    const sent: string[] = [];
+    const invalid: string[] = [];
+    const errored: string[] = [];
+
+    for (let attempt = 0; attempt <= MAX_RETRIES && pending.length > 0; attempt++) {
+      const isLastAttempt = attempt === MAX_RETRIES;
+      const multicastMessage: MulticastMessage = {
+        tokens: pending,
+        notification: { title: message.title, body: message.body },
+        data: message.data ?? {},
+      };
+
+      let response: BatchResponse;
+      try {
+        response = await this.firebase.getMessaging().sendEachForMulticast(multicastMessage);
+      } catch (err) {
+        // Whole-batch failure (e.g. auth/network). On the last attempt, every
+        // still-pending token is counted as errored exactly once; otherwise
+        // retry the same batch.
+        this.logger.warn(`FCM multicast batch failed: ${msg(err)}`);
+        if (isLastAttempt) {
+          errored.push(...pending);
+          pending = [];
+          break;
+        }
+        await sleep(RETRY_DELAY_MS[attempt] ?? 900);
+        continue;
+      }
+
+      const retryNext: string[] = [];
+      response.responses.forEach((r, i) => {
+        const token = pending[i];
+        if (r.success) {
+          sent.push(token);
+          return;
+        }
+        const code = errorCode(r.error);
+        if (INVALID_TOKEN_CODES.has(code)) {
+          invalid.push(token);
+        } else if (TRANSIENT_CODES.has(code) && !isLastAttempt) {
+          retryNext.push(token);
+        } else {
+          errored.push(token);
+        }
+      });
+
+      pending = retryNext;
+      if (pending.length > 0 && !isLastAttempt) {
+        await sleep(RETRY_DELAY_MS[attempt] ?? 900);
+      }
+    }
+
+    return { sent, invalid, errored, skipped: false };
   }
-}
-
-function base64url(input: string): string {
-  return toBase64Url(Buffer.from(input).toString('base64'));
-}
-
-function toBase64Url(b64: string): string {
-  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 function msg(err: unknown): string {
