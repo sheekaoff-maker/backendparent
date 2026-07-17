@@ -94,7 +94,7 @@ export class LegalController {
       (Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto) ||
       request.protocol ||
       'https';
-    const host = request.get('host') || 'backendparent-production.up.railway.app';
+    const host = request.get('host') || 'api.waqti.pro';
     return `${protocol}://${host}`;
   }
 }

@@ -43,7 +43,10 @@ async function bootstrap() {
       if (!origin || allowedOrigins.has(origin)) {
         return callback(null, true);
       }
-      return callback(new Error(`CORS: origin ${origin} not allowed`), false);
+      // Reject cleanly: omit CORS headers so the browser blocks it. Do NOT throw
+      // — throwing turns the preflight into a 500 instead of a proper rejection.
+      logger.warn(`CORS: blocked origin ${origin}`);
+      return callback(null, false);
     },
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],

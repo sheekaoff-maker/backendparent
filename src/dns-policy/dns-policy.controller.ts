@@ -1,8 +1,14 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { DnsPolicyService } from './dns-policy.service';
 import { CheckDnsPolicyDto, DnsPolicyResponseDto } from './dto/check-dns-policy.dto';
 
+// The DNS resolver calls this endpoint for EVERY DNS query, so it must not be
+// rate-limited by the global user-facing throttler — otherwise real DNS traffic
+// gets 429s and the resolver fails open (allows everything). It is an internal
+// endpoint reached only from the co-located DNS service.
+@SkipThrottle()
 @ApiTags('DNS Policy')
 @Controller('dns/policy')
 export class DnsPolicyController {

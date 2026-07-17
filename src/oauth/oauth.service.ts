@@ -17,7 +17,14 @@ export class OAuthService {
     if (!clientId || !redirectUri) {
       return { url: null, message: 'Microsoft OAuth not configured. Set MICROSOFT_OAUTH_CLIENT_ID and redirect URI.' };
     }
-    const url = `https://login.microsoftonline.com/common/oauth20/v2.0/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri)}&scope=offline_access User.Read&response_mode=query`;
+    const scope = encodeURIComponent('offline_access User.Read');
+    const url =
+      'https://login.microsoftonline.com/common/oauth2/v2.0/authorize' +
+      `?client_id=${encodeURIComponent(clientId)}` +
+      '&response_type=code' +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      `&scope=${scope}` +
+      '&response_mode=query';
     return { url };
   }
 
@@ -30,7 +37,7 @@ export class OAuthService {
       throw new Error('Microsoft OAuth not configured');
     }
 
-    const tokenUrl = 'https://login.microsoftonline.com/common/oauth20/v2.0/token';
+    const tokenUrl = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
     const body = new URLSearchParams({
       client_id: clientId,
       client_secret: clientSecret,
@@ -97,7 +104,7 @@ export class OAuthService {
     if (!clientId || !clientSecret) return { success: false, message: 'Microsoft OAuth not configured' };
 
     const decryptedRefresh = this.encryptionService.decrypt(account.refreshToken);
-    const tokenUrl = 'https://login.microsoftonline.com/common/oauth20/v2.0/token';
+    const tokenUrl = 'https://login.microsoftonline.com/common/oauth2/v2.0/token';
     const body = new URLSearchParams({
       client_id: clientId,
       client_secret: clientSecret,

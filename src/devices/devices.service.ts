@@ -1,16 +1,15 @@
-import { Injectable, NotFoundException, ForbiddenException, Inject } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { CreateDeviceDto, UpdateDeviceDto } from './dto/device.dto';
 import { DeviceStatus } from '@prisma/client';
 import { getPlatformSupport } from '../platform-support/platform-support.matrix';
-import { CACHE_MANAGER } from '@nestjs/cache-manager';
-import { Cache } from 'cache-manager';
+import { DnsPolicyService } from '../dns-policy/dns-policy.service';
 
 @Injectable()
 export class DevicesService {
   constructor(
     private prisma: PrismaService,
-    @Inject(CACHE_MANAGER) private cacheManager: Cache,
+    private dnsPolicyService: DnsPolicyService,
   ) {}
 
   async create(parentId: string, dto: CreateDeviceDto) {
@@ -161,20 +160,8 @@ export class DevicesService {
    * lock/unlock policy takes effect immediately instead of waiting for TTL.
    */
   private async invalidateDnsCacheForDevice(device: { ipAddress: string | null; dnsSourceIp: string | null }) {
-    const ips = [device.ipAddress, device.dnsSourceIp].filter(Boolean) as string[];
-    for (const ip of ips) {
-      try {
-        // cache-manager v5 doesn't expose a wildcard delete; rely on store-level reset
-        // for the per-IP keys. Best-effort: try to delete a couple of common keys; the
-        // 30s TTL guarantees eventual consistency anyway.
-        const store: any = (this.cacheManager as any).store;
-        if (store?.keys) {
-          const keys: string[] = await store.keys(`dns:${ip}:*`);
-          for (const k of keys) await this.cacheManager.del(k);
-        }
-      } catch {
-        // ignore; TTL will expire shortly
-      }
-    }
+    // Reliable, immediate invalidation: bump the per-IP DNS-policy cache version
+    // so every cached decision for this device's IPs is instantly superseded.
+    await this.dnsPolicyService.invalidateSourceIps([device.ipAddress, device.dnsSourceIp]);
   }
 }

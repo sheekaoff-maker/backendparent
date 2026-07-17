@@ -44,11 +44,40 @@ export class DnsPolicyService {
     return STRICT_MODE_DOH_DOMAINS.some((d) => lower === d || lower.endsWith('.' + d));
   }
 
+  private versionKey(ip: string): string {
+    return `dnsver:${ip}`;
+  }
+
+  private async getVersion(ip: string): Promise<number> {
+    const v = await this.cacheManager.get<number>(this.versionKey(ip));
+    return typeof v === 'number' ? v : 0;
+  }
+
+  /**
+   * Invalidate every cached DNS decision for the given source IPs by bumping
+   * their version. Called after any change that affects policy for a device
+   * (internet lock/unlock, block/unblock). Reliable and O(1) per IP — no
+   * wildcard key scanning, which cache-manager does not support across stores.
+   */
+  async invalidateSourceIps(ips: Array<string | null | undefined>): Promise<void> {
+    for (const ip of ips) {
+      if (!ip) continue;
+      const current = await this.getVersion(ip);
+      // Long TTL so the counter survives normal churn; old keys expire on their
+      // own 30s TTL, so a version reset can never resurrect a stale decision.
+      await this.cacheManager.set(this.versionKey(ip), current + 1, 24 * 60 * 60 * 1000);
+    }
+  }
+
   async checkPolicy(dto: CheckDnsPolicyDto): Promise<DnsPolicyResponseDto> {
     const { sourceIp, domain } = dto;
 
-    // Check Redis cache first (30s TTL)
-    const cacheKey = `dns:${sourceIp}:${domain}`;
+    // Version-namespaced cache key. Bumping the per-IP version (on lock/unlock,
+    // block/unblock) instantly orphans every cached decision for that IP, so
+    // policy changes propagate immediately instead of waiting out the 30s TTL.
+    // This replaces unreliable wildcard key deletion.
+    const version = await this.getVersion(sourceIp);
+    const cacheKey = `dns:${sourceIp}:${version}:${domain}`;
     const cached = await this.cacheManager.get<DnsPolicyResponseDto>(cacheKey);
     if (cached) {
       return cached;
