@@ -5,6 +5,7 @@ import {
   IsUUID,
   IsIP,
   IsMACAddress,
+  IsBoolean,
   MaxLength,
   MinLength,
 } from 'class-validator';
@@ -85,4 +86,14 @@ export class UpdateDeviceDto {
   @IsOptional()
   @IsUUID()
   gatewayId?: string;
+
+  @ApiPropertyOptional({ description: 'Layer 5: deny known VPN traffic patterns for this device' })
+  @IsOptional()
+  @IsBoolean()
+  vpnBlockEnabled?: boolean;
+
+  @ApiPropertyOptional({ description: 'Layer 6: block QUIC/HTTP-3 (UDP/443) for this device' })
+  @IsOptional()
+  @IsBoolean()
+  quicBlockEnabled?: boolean;
 }

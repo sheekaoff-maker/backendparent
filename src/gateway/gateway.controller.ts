@@ -39,6 +39,26 @@ class GatewayDiscoveryDeviceDto {
   @ApiProperty()
   @IsString()
   macAddress: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  hostname?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  dhcpClientId?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  vendorOui?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  osHint?: string;
 }
 
 class GatewayDiscoveryDto {
@@ -47,6 +67,33 @@ class GatewayDiscoveryDto {
   @ValidateNested({ each: true })
   @Type(() => GatewayDiscoveryDeviceDto)
   devices: GatewayDiscoveryDeviceDto[];
+}
+
+class VpnDetectionDto {
+  @ApiProperty()
+  @IsString()
+  deviceId: string;
+
+  @ApiProperty()
+  @IsString()
+  provider: string;
+
+  @ApiProperty()
+  @IsString()
+  method: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  detail?: string;
+}
+
+class VpnDetectionReportDto {
+  @ApiProperty({ type: [VpnDetectionDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => VpnDetectionDto)
+  detections: VpnDetectionDto[];
 }
 
 @ApiTags('Gateway')
@@ -110,5 +157,12 @@ export class GatewayController {
   @ApiOperation({ summary: 'Report ARP/neighbour device discovery from gateway agent' })
   async reportDiscovery(@Req() req: any, @Body() dto: GatewayDiscoveryDto) {
     return this.gatewayService.updateDiscoveredDevices(req.gateway.id, dto.devices ?? []);
+  }
+
+  @Post('vpn-detections')
+  @UseGuards(GatewayTokenGuard)
+  @ApiOperation({ summary: 'Report VPN-signature detections (Layer 5) from gateway agent' })
+  async reportVpnDetections(@Req() req: any, @Body() dto: VpnDetectionReportDto) {
+    return this.gatewayService.recordVpnDetections(req.gateway.id, dto.detections ?? []);
   }
 }

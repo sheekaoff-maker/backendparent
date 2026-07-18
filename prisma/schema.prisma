@@ -220,6 +220,14 @@ model Device {
   offlineSetupVerified  Boolean @default(false) @map("offline_setup_verified")
   offlineControlNotes   String? @map("offline_control_notes")
   gatewayId      String?        @map("gateway_id")
+  hostname       String?        @map("hostname")
+  dhcpClientId   String?        @map("dhcp_client_id")
+  vendorOui      String?        @map("vendor_oui")
+  osHint         String?        @map("os_hint")
+  fingerprintHash String?       @map("fingerprint_hash")
+  fingerprintUpdatedAt DateTime? @map("fingerprint_updated_at")
+  vpnBlockEnabled Boolean       @default(true) @map("vpn_block_enabled")
+  quicBlockEnabled Boolean      @default(false) @map("quic_block_enabled")
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
@@ -236,6 +244,7 @@ model Device {
   @@index([dnsSourceIp])
   @@index([parentId])
   @@index([gatewayId, macAddress])
+  @@index([fingerprintHash])
   @@map("devices")
 }
 
@@ -254,6 +263,38 @@ model UnknownDomainLog {
   @@index([classified])
   @@index([lastSeenAt])
   @@map("unknown_domain_logs")
+}
+
+model BandwidthLimit {
+  id           String         @id @default(cuid())
+  parentId     String         @map("parent_id")
+  childId      String?        @map("child_id")
+  deviceId     String?        @map("device_id")
+  category     BlockCategory?
+  downloadKbps Int?           @map("download_kbps")
+  uploadKbps   Int?           @map("upload_kbps")
+  enabled      Boolean        @default(true)
+  createdAt    DateTime       @default(now()) @map("created_at")
+  updatedAt    DateTime       @updatedAt @map("updated_at")
+
+  @@index([parentId])
+  @@index([childId])
+  @@index([deviceId])
+  @@map("bandwidth_limits")
+}
+
+model VpnDetectionLog {
+  id         String   @id @default(cuid())
+  gatewayId  String   @map("gateway_id")
+  deviceId   String   @map("device_id")
+  provider   String
+  method     String
+  detail     String?
+  detectedAt DateTime @default(now()) @map("detected_at")
+
+  @@index([deviceId])
+  @@index([gatewayId, detectedAt])
+  @@map("vpn_detection_logs")
 }
 
 model OfflineControlChecklist {

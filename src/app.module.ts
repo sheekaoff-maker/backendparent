@@ -29,6 +29,7 @@ import { CategoriesModule } from './categories/categories.module';
 import { PlatformSupportModule } from './platform-support/platform-support.module';
 import { OfflineControlModule } from './offline-control/offline-control.module';
 import { ProtectionModule } from './protection/protection.module';
+import { BandwidthModule } from './bandwidth/bandwidth.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { ProtectionModule } from './protection/protection.module';
     PlatformSupportModule,
     OfflineControlModule,
     ProtectionModule,
+    BandwidthModule,
     AuthModule,
     ParentsModule,
     ChildrenModule,
