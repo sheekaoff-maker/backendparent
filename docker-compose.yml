@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:16-alpine
@@ -8,7 +6,11 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: parental_control
     ports:
-      - "5432:5432"
+      # Bound to loopback only — Postgres must never be reachable from
+      # outside this host. Other containers still reach it fine over the
+      # compose network by service name (`postgres:5432`); this binding
+      # only affects the *host*-published copy of the port.
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -16,11 +18,18 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
 
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      # Loopback only — same reasoning as postgres above.
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -28,11 +37,20 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
 
   backend:
     build: .
     ports:
-      - "3000:3000"
+      # Loopback only in production — Nginx (deploy/nginx/guardtime.conf) is
+      # the intended public entry point, proxying to 127.0.0.1:3000 on the
+      # same host. Still reachable at http://localhost:3000 for local dev.
+      - "127.0.0.1:3000:3000"
     environment:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/parental_control?schema=public
       REDIS_HOST: redis
@@ -49,11 +67,26 @@ services:
       redis:
         condition: service_healthy
     command: sh -c "npx prisma migrate deploy && node dist/main.js"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 15s
+      timeout: 3s
+      start_period: 20s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
 
   mock-gateway:
     image: node:20-alpine
     ports:
-      - "3100:3100"
+      - "127.0.0.1:3100:3100" # dev-only fixture, never meant to be public
     command: >
       sh -c "echo 'Mock gateway running on port 3100' && node -e \"
         const http = require('http');
@@ -65,20 +98,51 @@ services:
         });
         server.listen(3100, () => console.log('Mock gateway on :3100'));
       \""
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3100/status', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
 
   dns-service:
     build: ../dns-service
     ports:
+      # 53 stays open to the world — this is the actual DNS resolver a
+      # home router points at; it has to be internet-reachable.
       - "53:53/udp"
       - "53:53/tcp"
+      # Health/readiness/metrics — not the DNS product surface. Loopback
+      # only; Nginx or an in-host Prometheus scrapes it from the same VPS
+      # (see the /metrics restriction note in deploy/nginx/guardtime.conf).
+      - "127.0.0.1:8080:8080"
     environment:
       BACKEND_URL: http://backend:3000
       UPSTREAM_DNS: 1.1.1.1,8.8.8.8
       DNS_PORT: 53
+      HEALTH_PORT: 8080
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     cap_add:
       - NET_ADMIN
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:8080/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 15s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
 
 volumes:
   postgres_data:

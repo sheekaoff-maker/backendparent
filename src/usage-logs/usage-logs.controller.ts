@@ -14,20 +14,20 @@ export class UsageLogsController {
 
   @Get('daily')
   @ApiOperation({ summary: 'Get daily usage summary' })
-  async getDaily(@Query('childId') childId: string, @Query('date') date?: string) {
+  async getDaily(@CurrentUser('sub') parentId: string, @Query('childId') childId: string, @Query('date') date?: string) {
     const parsedDate = date ? new Date(date) : undefined;
-    return this.usageLogsService.getDailyUsage(childId, parsedDate);
+    return this.usageLogsService.getDailyUsage(parentId, childId, parsedDate);
   }
 
   @Get('weekly')
   @ApiOperation({ summary: 'Get weekly usage summary' })
-  async getWeekly(@Query('childId') childId: string) {
-    return this.usageLogsService.getWeeklyUsage(childId);
+  async getWeekly(@CurrentUser('sub') parentId: string, @Query('childId') childId: string) {
+    return this.usageLogsService.getWeeklyUsage(parentId, childId);
   }
 
   @Get('device/:id')
   @ApiOperation({ summary: 'Get device usage report' })
-  async getDeviceUsage(@Param('id') deviceId: string) {
-    return this.usageLogsService.getDeviceUsage(deviceId);
+  async getDeviceUsage(@CurrentUser('sub') parentId: string, @Param('id') deviceId: string) {
+    return this.usageLogsService.getDeviceUsage(parentId, deviceId);
   }
 }

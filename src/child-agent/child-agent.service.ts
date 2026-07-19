@@ -43,11 +43,17 @@ export class ChildAgentService {
   }
 
   async getCommands(deviceId: string) {
-    await this.markCommandsDelivered(deviceId);
-    return this.prisma.command.findMany({
+    const pending = await this.prisma.command.findMany({
       where: { deviceId, status: 'PENDING' },
       orderBy: { createdAt: 'asc' },
     });
+    if (pending.length > 0) {
+      await this.prisma.command.updateMany({
+        where: { id: { in: pending.map((c) => c.id) } },
+        data: { status: 'DELIVERED', deliveredAt: new Date() },
+      });
+    }
+    return pending;
   }
 
   async acknowledgeCommand(dto: CommandAckDto) {
@@ -136,10 +142,4 @@ export class ChildAgentService {
     }
   }
 
-  private async markCommandsDelivered(deviceId: string) {
-    await this.prisma.command.updateMany({
-      where: { deviceId, status: 'PENDING' },
-      data: { status: 'DELIVERED', deliveredAt: new Date() },
-    });
-  }
 }

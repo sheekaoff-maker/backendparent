@@ -18,6 +18,15 @@ export class GatewayService {
 
   constructor(private prisma: PrismaService) {}
 
+  /** Parent-facing: which gateways they own, so Flutter can pick one to operate against (e.g. Router Integration). */
+  async listGateways(parentId: string) {
+    return this.prisma.gateway.findMany({
+      where: { parentId },
+      select: { id: true, name: true, endpoint: true, paired: true, pairedAt: true, lastSeen: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
   async register(parentId: string, name: string, endpoint?: string) {
     const token = uuidv4();
     return this.prisma.gateway.create({

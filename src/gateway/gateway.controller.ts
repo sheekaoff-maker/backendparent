@@ -101,6 +101,14 @@ class VpnDetectionReportDto {
 export class GatewayController {
   constructor(private gatewayService: GatewayService) {}
 
+  @Get()
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'List gateways owned by the current parent' })
+  async list(@CurrentUser('sub') parentId: string) {
+    return this.gatewayService.listGateways(parentId);
+  }
+
   @Post('register')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()

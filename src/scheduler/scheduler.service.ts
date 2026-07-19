@@ -28,15 +28,17 @@ export class SchedulerService {
     });
 
     for (const session of activeSessions) {
-      const remaining = this.sessionsService.calculateRemainingMinutes(session);
+      try {
+        const remaining = this.sessionsService.calculateRemainingMinutes(session);
 
-      if (remaining <= 0) {
-        await this.expireSession(session);
-      } else if (remaining <= 10) {
-        await this.notifyTenMinutesLeft(session, remaining);
+        if (remaining <= 0) {
+          await this.expireSession(session);
+        } else if (remaining <= 10) {
+          await this.notifyTenMinutesLeft(session, remaining);
+        }
+      } catch (err: any) {
+        this.logger.warn(`checkActiveSessions failed for session ${session.id}: ${err.message}`);
       }
-
-      await this.sessionsService.calculateRemainingMinutes(session);
     }
   }
 
@@ -58,15 +60,19 @@ export class SchedulerService {
       if (rule.daysOfWeek && !rule.daysOfWeek.split(',').includes(currentDay)) continue;
 
       for (const device of rule.child.devices) {
-        this.logger.log(`Bedtime rule triggered for device ${device.id}`);
-        const result = await this.enforcementService.blockDevice(device.id, `Bedtime rule: ${rule.startTime}-${rule.endTime}`);
-        if (result.success) {
-          await this.auditService.log({
-            action: 'BEDTIME_ENFORCED',
-            entity: 'device',
-            entityId: device.id,
-            details: `Rule ${rule.id}: bedtime ${rule.startTime}-${rule.endTime}`,
-          });
+        try {
+          this.logger.log(`Bedtime rule triggered for device ${device.id}`);
+          const result = await this.enforcementService.blockDevice(device.id, `Bedtime rule: ${rule.startTime}-${rule.endTime}`);
+          if (result.success) {
+            await this.auditService.log({
+              action: 'BEDTIME_ENFORCED',
+              entity: 'device',
+              entityId: device.id,
+              details: `Rule ${rule.id}: bedtime ${rule.startTime}-${rule.endTime}`,
+            });
+          }
+        } catch (err: any) {
+          this.logger.warn(`checkRulesAndSchedules failed for device ${device.id}: ${err.message}`);
         }
       }
     }
@@ -100,37 +106,41 @@ export class SchedulerService {
     });
 
     for (const device of suspect) {
-      const newAttempts = device.bypassAttempts + 1;
-      const escalate = newAttempts >= COMPROMISED_THRESHOLD;
-      const newStatus = escalate ? 'COMPROMISED' : 'POSSIBLE_DNS_BYPASS';
-      this.logger.warn(
-        `[DNS-bypass] device ${device.id} attempts=${newAttempts} status=${newStatus}`,
-      );
-      await this.prisma.device.update({
-        where: { id: device.id },
-        data: {
-          protectionStatus: newStatus,
-          bypassAttempts: newAttempts,
-          lastBypassDetectedAt: new Date(),
-        },
-      });
-      await this.notificationsService.create({
-        userId: device.parentId,
-        type: escalate ? 'REPEATED_BYPASS' : 'POSSIBLE_DNS_BYPASS',
-        title: escalate ? 'Repeated DNS bypass — device COMPROMISED' : 'Possible DNS bypass detected',
-        message: escalate
-          ? `Device "${device.name}" has bypassed DNS ${newAttempts} times. Marked COMPROMISED — re-check router DNS, lock device network settings, or consider a hotspot block.`
-          : `Device "${device.name}" is locked but our DNS server hasn't seen any traffic from it. The child may have changed DNS, started a VPN, or switched to a hotspot.`,
-        deviceId: device.id,
-        childId: device.childId ?? undefined,
-      });
-      await this.auditService.log({
-        userId: device.parentId,
-        action: escalate ? 'DEVICE_COMPROMISED' : 'DNS_BYPASS_DETECTED',
-        entity: 'device',
-        entityId: device.id,
-        details: `attempts=${newAttempts}, lastDnsSeenAt=${device.lastDnsSeenAt?.toISOString() ?? 'null'}`,
-      });
+      try {
+        const newAttempts = device.bypassAttempts + 1;
+        const escalate = newAttempts >= COMPROMISED_THRESHOLD;
+        const newStatus = escalate ? 'COMPROMISED' : 'POSSIBLE_DNS_BYPASS';
+        this.logger.warn(
+          `[DNS-bypass] device ${device.id} attempts=${newAttempts} status=${newStatus}`,
+        );
+        await this.prisma.device.update({
+          where: { id: device.id },
+          data: {
+            protectionStatus: newStatus,
+            bypassAttempts: newAttempts,
+            lastBypassDetectedAt: new Date(),
+          },
+        });
+        await this.notificationsService.create({
+          userId: device.parentId,
+          type: escalate ? 'REPEATED_BYPASS' : 'POSSIBLE_DNS_BYPASS',
+          title: escalate ? 'Repeated DNS bypass — device COMPROMISED' : 'Possible DNS bypass detected',
+          message: escalate
+            ? `Device "${device.name}" has bypassed DNS ${newAttempts} times. Marked COMPROMISED — re-check router DNS, lock device network settings, or consider a hotspot block.`
+            : `Device "${device.name}" is locked but our DNS server hasn't seen any traffic from it. The child may have changed DNS, started a VPN, or switched to a hotspot.`,
+          deviceId: device.id,
+          childId: device.childId ?? undefined,
+        });
+        await this.auditService.log({
+          userId: device.parentId,
+          action: escalate ? 'DEVICE_COMPROMISED' : 'DNS_BYPASS_DETECTED',
+          entity: 'device',
+          entityId: device.id,
+          details: `attempts=${newAttempts}, lastDnsSeenAt=${device.lastDnsSeenAt?.toISOString() ?? 'null'}`,
+        });
+      } catch (err: any) {
+        this.logger.warn(`detectDnsBypass failed for device ${device.id}: ${err.message}`);
+      }
     }
   }
 
@@ -162,31 +172,35 @@ export class SchedulerService {
       const silent = !device.lastDnsSeenAt || device.lastDnsSeenAt < cutoff;
       if (!silent) continue;
 
-      const recent = await this.prisma.notificationEvent.findFirst({
-        where: {
-          deviceId: device.id,
-          type: 'DEVICE_DISCONNECTED',
-          createdAt: { gte: new Date(Date.now() - DEDUPE_HOURS * 60 * 60_000) },
-        },
-      });
-      if (recent) continue;
+      try {
+        const recent = await this.prisma.notificationEvent.findFirst({
+          where: {
+            deviceId: device.id,
+            type: 'DEVICE_DISCONNECTED',
+            createdAt: { gte: new Date(Date.now() - DEDUPE_HOURS * 60 * 60_000) },
+          },
+        });
+        if (recent) continue;
 
-      this.logger.warn(`[health] device ${device.id} active but DNS silent`);
-      await this.notificationsService.create({
-        userId: device.parentId,
-        type: 'DEVICE_DISCONNECTED',
-        title: 'Protection not verified during active use',
-        message: `"${device.name}" has a live session but our DNS server hasn't seen it for over ${FRESH_MIN} minutes. Filtering may be bypassed — check the router/DNS setup, Private DNS, or for a VPN/hotspot.`,
-        deviceId: device.id,
-        childId: device.childId ?? undefined,
-      });
-      await this.auditService.log({
-        userId: device.parentId,
-        action: 'DNS_HEALTH_ALERT',
-        entity: 'device',
-        entityId: device.id,
-        details: `active session, lastDnsSeenAt=${device.lastDnsSeenAt?.toISOString() ?? 'null'}`,
-      });
+        this.logger.warn(`[health] device ${device.id} active but DNS silent`);
+        await this.notificationsService.create({
+          userId: device.parentId,
+          type: 'DEVICE_DISCONNECTED',
+          title: 'Protection not verified during active use',
+          message: `"${device.name}" has a live session but our DNS server hasn't seen it for over ${FRESH_MIN} minutes. Filtering may be bypassed — check the router/DNS setup, Private DNS, or for a VPN/hotspot.`,
+          deviceId: device.id,
+          childId: device.childId ?? undefined,
+        });
+        await this.auditService.log({
+          userId: device.parentId,
+          action: 'DNS_HEALTH_ALERT',
+          entity: 'device',
+          entityId: device.id,
+          details: `active session, lastDnsSeenAt=${device.lastDnsSeenAt?.toISOString() ?? 'null'}`,
+        });
+      } catch (err: any) {
+        this.logger.warn(`monitorDeviceHealth failed for device ${device.id}: ${err.message}`);
+      }
     }
   }
 
@@ -289,22 +303,26 @@ export class SchedulerService {
       where: { protectionScore: { lt: 50 } },
     });
     for (const device of lowScoreDevices) {
-      const recent = await this.prisma.notificationEvent.findFirst({
-        where: {
-          deviceId: device.id,
+      try {
+        const recent = await this.prisma.notificationEvent.findFirst({
+          where: {
+            deviceId: device.id,
+            type: 'PROTECTION_LOW',
+            createdAt: { gte: new Date(Date.now() - 24 * 60 * 60_000) },
+          },
+        });
+        if (recent) continue;
+        await this.notificationsService.create({
+          userId: device.parentId,
           type: 'PROTECTION_LOW',
-          createdAt: { gte: new Date(Date.now() - 24 * 60 * 60_000) },
-        },
-      });
-      if (recent) continue;
-      await this.notificationsService.create({
-        userId: device.parentId,
-        type: 'PROTECTION_LOW',
-        title: 'Low protection score',
-        message: `Device "${device.name}" has a protection score of ${device.protectionScore}/100. Open insights to see recommendations.`,
-        deviceId: device.id,
-        childId: device.childId ?? undefined,
-      });
+          title: 'Low protection score',
+          message: `Device "${device.name}" has a protection score of ${device.protectionScore}/100. Open insights to see recommendations.`,
+          deviceId: device.id,
+          childId: device.childId ?? undefined,
+        });
+      } catch (err: any) {
+        this.logger.warn(`notifyLowProtection failed for device ${device.id}: ${err.message}`);
+      }
     }
   }
 

@@ -47,3 +47,32 @@ export function getRedisConfig(): RedisConfig {
     tls: process.env.REDIS_TLS === 'true',
   };
 }
+
+/**
+ * Socket-level tuning for `cache-manager-redis-yet` (node-redis v4 under the
+ * hood) — used by every CacheModule.registerAsync() block. Without an
+ * explicit connectTimeout, a network blip can hang a cache read/write far
+ * longer than the request itself should ever take; without a bounded
+ * reconnectStrategy, node-redis retries forever with no cap.
+ */
+export function getRedisCacheSocketOptions() {
+  return {
+    connectTimeout: 5000,
+    reconnectStrategy: (retries: number) => Math.min(retries * 200, 3000),
+  };
+}
+
+/**
+ * ioredis-level tuning for BullMQ's dedicated connection.
+ * `maxRetriesPerRequest: null` is BullMQ's own documented requirement — it
+ * issues blocking commands (BRPOPLPUSH etc.) that must be allowed to wait
+ * indefinitely rather than erroring out after ioredis's default retry cap.
+ */
+export function getRedisIoredisOptions() {
+  return {
+    connectTimeout: 5000,
+    maxRetriesPerRequest: null as null,
+    enableReadyCheck: true,
+    retryStrategy: (times: number) => Math.min(times * 200, 3000),
+  };
+}

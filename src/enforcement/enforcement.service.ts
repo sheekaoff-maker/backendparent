@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { ControlAdapter, ControlResult, getAdapterForDevice, isOfflineGameUnsupported } from './adapters/control-adapter.interface';
 import { AndroidAgentAdapter } from './adapters/android-agent.adapter';
@@ -42,9 +42,10 @@ export class EnforcementService {
     return this.adapters.get(method) || this.mockAdapter;
   }
 
-  async blockDevice(deviceId: string, reason: string): Promise<ControlResult> {
+  async blockDevice(deviceId: string, reason: string, parentId?: string): Promise<ControlResult> {
     const device = await this.prisma.device.findUnique({ where: { id: deviceId } });
     if (!device) throw new NotFoundException('Device not found');
+    if (parentId && device.parentId !== parentId) throw new ForbiddenException('Not your device');
     const adapter = this.getAdapter(device);
     const result = await adapter.blockDevice(device, reason);
     if (result.success) {
@@ -56,9 +57,10 @@ export class EnforcementService {
     return result;
   }
 
-  async unblockDevice(deviceId: string): Promise<ControlResult> {
+  async unblockDevice(deviceId: string, parentId?: string): Promise<ControlResult> {
     const device = await this.prisma.device.findUnique({ where: { id: deviceId } });
     if (!device) throw new NotFoundException('Device not found');
+    if (parentId && device.parentId !== parentId) throw new ForbiddenException('Not your device');
     const adapter = this.getAdapter(device);
     const result = await adapter.unblockDevice(device);
     if (result.success) {
@@ -70,9 +72,10 @@ export class EnforcementService {
     return result;
   }
 
-  async syncRules(deviceId: string): Promise<ControlResult> {
+  async syncRules(deviceId: string, parentId?: string): Promise<ControlResult> {
     const device = await this.prisma.device.findUnique({ where: { id: deviceId } });
     if (!device) throw new NotFoundException('Device not found');
+    if (parentId && device.parentId !== parentId) throw new ForbiddenException('Not your device');
     if (!device.childId) return { success: false, message: 'Device not assigned to child' };
 
     const rules = await this.prisma.rule.findMany({

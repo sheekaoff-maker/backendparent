@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { CreateRuleDto, UpdateRuleDto } from './dto/rule.dto';
 
@@ -6,7 +6,14 @@ import { CreateRuleDto, UpdateRuleDto } from './dto/rule.dto';
 export class RulesService {
   constructor(private prisma: PrismaService) {}
 
-  async create(dto: CreateRuleDto) {
+  private async assertChildOwnership(parentId: string, childId: string) {
+    const child = await this.prisma.child.findUnique({ where: { id: childId } });
+    if (!child) throw new NotFoundException('Child not found');
+    if (child.parentId !== parentId) throw new ForbiddenException('Not your child');
+  }
+
+  async create(parentId: string, dto: CreateRuleDto) {
+    await this.assertChildOwnership(parentId, dto.childId);
     return this.prisma.rule.create({
       data: {
         childId: dto.childId,
@@ -36,21 +43,27 @@ export class RulesService {
   }
 
   async findOne(id: string) {
-    const rule = await this.prisma.rule.findUnique({ where: { id } });
+    const rule = await this.prisma.rule.findUnique({ where: { id }, include: { child: true } });
     if (!rule) throw new NotFoundException('Rule not found');
     return rule;
   }
 
-  async update(id: string, dto: UpdateRuleDto) {
-    await this.findOne(id);
+  private async findOwnedOrThrow(parentId: string, id: string) {
+    const rule = await this.findOne(id);
+    if (rule.child.parentId !== parentId) throw new ForbiddenException('Not your rule');
+    return rule;
+  }
+
+  async update(parentId: string, id: string, dto: UpdateRuleDto) {
+    await this.findOwnedOrThrow(parentId, id);
     return this.prisma.rule.update({
       where: { id },
       data: dto,
     });
   }
 
-  async remove(id: string) {
-    await this.findOne(id);
+  async remove(parentId: string, id: string) {
+    await this.findOwnedOrThrow(parentId, id);
     await this.prisma.rule.delete({ where: { id } });
   }
 

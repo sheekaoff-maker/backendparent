@@ -14,8 +14,8 @@ export class RulesController {
 
   @Post()
   @ApiOperation({ summary: 'Create a rule' })
-  async create(@Body() dto: CreateRuleDto) {
-    return this.rulesService.create(dto);
+  async create(@CurrentUser('sub') parentId: string, @Body() dto: CreateRuleDto) {
+    return this.rulesService.create(parentId, dto);
   }
 
   @Get()
@@ -26,13 +26,13 @@ export class RulesController {
 
   @Patch(':id')
   @ApiOperation({ summary: 'Update a rule' })
-  async update(@Param('id') id: string, @Body() dto: UpdateRuleDto) {
-    return this.rulesService.update(id, dto);
+  async update(@CurrentUser('sub') parentId: string, @Param('id') id: string, @Body() dto: UpdateRuleDto) {
+    return this.rulesService.update(parentId, id, dto);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Delete a rule' })
-  async remove(@Param('id') id: string) {
-    await this.rulesService.remove(id);
+  async remove(@CurrentUser('sub') parentId: string, @Param('id') id: string) {
+    await this.rulesService.remove(parentId, id);
   }
 }

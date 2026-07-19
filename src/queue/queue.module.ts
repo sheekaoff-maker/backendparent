@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { CommandQueueService } from './command-queue.service';
 import { CommandQueueProcessor } from './command-queue.processor';
-import { getRedisConfig } from '../common/redis-config';
+import { getRedisConfig, getRedisIoredisOptions } from '../common/redis-config';
 
 @Module({
   imports: [
@@ -16,6 +16,7 @@ import { getRedisConfig } from '../common/redis-config';
             username: cfg.username,
             password: cfg.password,
             tls: cfg.tls ? {} : undefined,
+            ...getRedisIoredisOptions(),
           },
         };
       },

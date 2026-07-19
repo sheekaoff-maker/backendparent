@@ -1,0 +1,36 @@
+# Prometheus scrape config for the GuardTime fleet. Point Prometheus's
+# --config.file at this, then import deploy/grafana/guardtime-fleet-dashboard.json
+# into Grafana with this Prometheus instance as its datasource.
+#
+# Status: prepared, not deployed — no Prometheus/Grafana instance was
+# available to actually run this against in this pass. Every metric name
+# referenced in the dashboard is real and unit-tested (backend: 11 metrics
+# tests; dns-service: metrics tested via health-server.test.ts) — what's
+# unverified is the scrape config's own YAML correctness against a live
+# Prometheus, since none was available to point it at.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: backend
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["backend:3000"]
+        labels: { service: backend }
+
+  - job_name: dns-service
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["dns-service:8080"]
+        labels: { service: dns-service }
+
+  # gateway-agent has no HTTP surface by design (see metrics.js) — it writes
+  # Prometheus text format to a file instead. Point node_exporter's
+  # textfile collector at that file on each gateway host, then scrape
+  # node_exporter itself:
+  - job_name: gateway-agent-textfile
+    static_configs:
+      - targets: ["<gateway-host>:9100"] # node_exporter, --collector.textfile.directory pointed at METRICS_TEXTFILE_PATH's directory
+        labels: { service: gateway-agent }

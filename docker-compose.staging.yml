@@ -1,0 +1,63 @@
+# Production-identical staging stack — every service that can reasonably
+# run in a container, wired together the same way they'd talk to each other
+# in production. Differs from docker-compose.yml (local dev) by: including
+# the web client and a dry-run gateway-agent, and using staging-labeled
+# secrets you're expected to actually replace.
+#
+# gateway-agent runs via Dockerfile.staging (DRY_RUN=true) — see the
+# comment at the top of that file for why production itself stays
+# bare-metal systemd instead. This container proves the register → poll →
+# receive-commands loop works end-to-end without touching a real network.
+#
+# Usage:
+#   1. Copy this file's placeholder secrets out to a real `.env.staging`
+#      (gitignored) and reference it with `--env-file`, OR export them in
+#      your CI/staging runner's own secret store. Never commit real values.
+#   2. docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d
+#   3. Seed a parent/child/device/gateway (see simulation/scenario-runner)
+#      so gateway-agent has a real GATEWAY_TOKEN to authenticate with —
+#      it exits at startup without one (config.js:120-122), by design.
+
+services:
+  backend:
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/parental_control?schema=public&connection_limit=10&pool_timeout=10
+      JWT_SECRET: ${STAGING_JWT_SECRET:?Set STAGING_JWT_SECRET — see step 1 above}
+      JWT_REFRESH_SECRET: ${STAGING_JWT_REFRESH_SECRET:?Set STAGING_JWT_REFRESH_SECRET}
+      ENCRYPTION_KEY: ${STAGING_ENCRYPTION_KEY:?Set STAGING_ENCRYPTION_KEY (32 chars)}
+      NODE_ENV: production # exercises the same env.validation.ts placeholder-rejection
+                            # path production uses — staging should catch config mistakes
+                            # before production does, not skip the check.
+      CORS_ORIGINS: http://localhost:3001
+
+  web-client:
+    build: "../web port client (parent-app)"
+    ports:
+      - "127.0.0.1:3001:3000" # loopback — front it with Nginx/Ingress if staging needs to be reachable off-host
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3000
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: { cpus: '0.5', memory: 384M }
+
+  gateway-agent:
+    build:
+      context: ../gateway-agent
+      dockerfile: Dockerfile.staging
+    environment:
+      BACKEND_URL: http://backend:3000
+      GATEWAY_TOKEN: ${STAGING_GATEWAY_TOKEN:?Seed a gateway and set STAGING_GATEWAY_TOKEN — see simulation/scenario-runner}
+      ENABLE_DNS_REDIRECT: "false" # no real LAN in a bridge network to redirect
+      ENABLE_ROUTER_DETECTION: "true" # read-only probes, safe — see config.js comment
+      POLL_INTERVAL_MS: "3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: { cpus: '0.25', memory: 128M }

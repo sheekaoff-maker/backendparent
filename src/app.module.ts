@@ -30,6 +30,8 @@ import { PlatformSupportModule } from './platform-support/platform-support.modul
 import { OfflineControlModule } from './offline-control/offline-control.module';
 import { ProtectionModule } from './protection/protection.module';
 import { BandwidthModule } from './bandwidth/bandwidth.module';
+import { RouterIntegrationModule } from './router-integration/router-integration.module';
+import { MetricsModule } from './metrics/metrics.module';
 
 @Module({
   imports: [
@@ -41,6 +43,7 @@ import { BandwidthModule } from './bandwidth/bandwidth.module';
       { ttl: 60000, limit: 5, name: 'auth_login' },
       { ttl: 60000, limit: 10, name: 'auth_register' },
     ]),
+    MetricsModule,
     HealthModule,
     CommonModule,
     QueueModule,
@@ -50,6 +53,7 @@ import { BandwidthModule } from './bandwidth/bandwidth.module';
     OfflineControlModule,
     ProtectionModule,
     BandwidthModule,
+    RouterIntegrationModule,
     AuthModule,
     ParentsModule,
     ChildrenModule,

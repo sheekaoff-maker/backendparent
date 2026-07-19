@@ -1,10 +1,22 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { CreateUsageLogDto } from './dto/usage-log.dto';
 
 @Injectable()
 export class UsageLogsService {
   constructor(private prisma: PrismaService) {}
+
+  private async assertChildOwnership(parentId: string, childId: string) {
+    const child = await this.prisma.child.findUnique({ where: { id: childId } });
+    if (!child) throw new NotFoundException('Child not found');
+    if (child.parentId !== parentId) throw new ForbiddenException('Not your child');
+  }
+
+  private async assertDeviceOwnership(parentId: string, deviceId: string) {
+    const device = await this.prisma.device.findUnique({ where: { id: deviceId } });
+    if (!device) throw new NotFoundException('Device not found');
+    if (device.parentId !== parentId) throw new ForbiddenException('Not your device');
+  }
 
   async createLog(dto: CreateUsageLogDto) {
     return this.prisma.usageLog.create({
@@ -18,7 +30,8 @@ export class UsageLogsService {
     });
   }
 
-  async getDailyUsage(childId: string, date?: Date) {
+  async getDailyUsage(parentId: string, childId: string, date?: Date) {
+    await this.assertChildOwnership(parentId, childId);
     const targetDate = date || new Date();
     const startOfDay = new Date(targetDate);
     startOfDay.setHours(0, 0, 0, 0);
@@ -49,7 +62,8 @@ export class UsageLogsService {
     };
   }
 
-  async getWeeklyUsage(childId: string) {
+  async getWeeklyUsage(parentId: string, childId: string) {
+    await this.assertChildOwnership(parentId, childId);
     const now = new Date();
     const startOfWeek = new Date(now);
     startOfWeek.setDate(now.getDate() - now.getDay());
@@ -80,7 +94,8 @@ export class UsageLogsService {
     };
   }
 
-  async getDeviceUsage(deviceId: string) {
+  async getDeviceUsage(parentId: string, deviceId: string) {
+    await this.assertDeviceOwnership(parentId, deviceId);
     const logs = await this.prisma.usageLog.findMany({
       where: { deviceId },
       orderBy: { loggedAt: 'desc' },

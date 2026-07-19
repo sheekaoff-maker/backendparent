@@ -37,19 +37,19 @@ export class EnforcementController {
 
   @Post('block')
   @ApiOperation({ summary: 'Block a device' })
-  async block(@Body() dto: BlockDeviceDto) {
-    return this.enforcementService.blockDevice(dto.deviceId, dto.reason);
+  async block(@CurrentUser('sub') parentId: string, @Body() dto: BlockDeviceDto) {
+    return this.enforcementService.blockDevice(dto.deviceId, dto.reason, parentId);
   }
 
   @Post('unblock')
   @ApiOperation({ summary: 'Unblock a device' })
-  async unblock(@Body() dto: UnblockDeviceDto) {
-    return this.enforcementService.unblockDevice(dto.deviceId);
+  async unblock(@CurrentUser('sub') parentId: string, @Body() dto: UnblockDeviceDto) {
+    return this.enforcementService.unblockDevice(dto.deviceId, parentId);
   }
 
   @Post('sync')
   @ApiOperation({ summary: 'Sync rules to device' })
-  async sync(@Body() dto: SyncRulesDto) {
-    return this.enforcementService.syncRules(dto.deviceId);
+  async sync(@CurrentUser('sub') parentId: string, @Body() dto: SyncRulesDto) {
+    return this.enforcementService.syncRules(dto.deviceId, parentId);
   }
 }

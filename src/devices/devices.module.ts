@@ -3,7 +3,7 @@ import { CacheModule } from '@nestjs/cache-manager';
 import { redisStore } from 'cache-manager-redis-yet';
 import { DevicesService } from './devices.service';
 import { DevicesController } from './devices.controller';
-import { getRedisConfig } from '../common/redis-config';
+import { getRedisConfig, getRedisCacheSocketOptions } from '../common/redis-config';
 import { DnsPolicyModule } from '../dns-policy/dns-policy.module';
 
 @Module({
@@ -15,7 +15,7 @@ import { DnsPolicyModule } from '../dns-policy/dns-policy.module';
         return {
           store: redisStore as any,
           url: cfg.url,
-          socket: { host: cfg.host, port: cfg.port, tls: cfg.tls },
+          socket: { host: cfg.host, port: cfg.port, tls: cfg.tls, ...getRedisCacheSocketOptions() },
           username: cfg.username,
           password: cfg.password,
           ttl: 30000,

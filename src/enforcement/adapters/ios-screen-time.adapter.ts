@@ -6,47 +6,44 @@ import { Device, CommandType } from '@prisma/client';
 /**
  * iOS Screen Time Adapter
  *
- * IMPORTANT TODO: Apple Family Controls entitlement and native Swift implementation required.
- * This adapter stores rules and syncs them to the iOS child agent app.
- * The iOS agent must implement:
- * - FamilyControls framework
- * - ManagedSettings framework
- * - DeviceActivity framework
- * - Screen Time API
- *
- * Without the Apple Family Controls entitlement, this adapter cannot enforce restrictions
- * on iOS devices. The entitlement must be requested from Apple.
+ * Enforcement on iOS requires an Apple Family Controls entitlement (Apple-side
+ * approval, weeks-long process) plus a native iOS agent implementing
+ * FamilyControls/ManagedSettings/DeviceActivity — neither exists yet. Until
+ * then this adapter must not report success: the command is queued (so a
+ * future agent can pick it up), but every call reports failure so callers
+ * (EnforcementService, the API response, the parent's UI) show an honest
+ * "not supported on this device yet" instead of a false confirmation.
  */
+const UNSUPPORTED_MESSAGE =
+  'iOS enforcement is not available yet — it requires an Apple Family Controls entitlement and a native iOS agent that do not exist in this deployment. The action was not applied to the device.';
+
 @Injectable()
 export class IosScreenTimeAdapter implements ControlAdapter {
   constructor(private prisma: PrismaService) {}
 
   async startSession(device: Device, rule?: unknown): Promise<ControlResult> {
     await this.createCommand(device.id, CommandType.SYNC_RULES, JSON.stringify(rule || {}));
-    return {
-      success: true,
-      message: 'Rules synced to iOS agent. TODO: Requires Apple Family Controls entitlement + native Swift implementation.',
-    };
+    return { success: false, message: UNSUPPORTED_MESSAGE };
   }
 
   async stopSession(device: Device): Promise<ControlResult> {
     await this.createCommand(device.id, CommandType.SYNC_RULES, JSON.stringify({ action: 'stop_session' }));
-    return { success: true, message: 'Stop session command synced to iOS agent' };
+    return { success: false, message: UNSUPPORTED_MESSAGE };
   }
 
   async blockDevice(device: Device, reason: string): Promise<ControlResult> {
     await this.createCommand(device.id, CommandType.BLOCK_APPS, JSON.stringify({ reason }));
-    return { success: true, message: 'Block command synced to iOS agent. Requires ManagedSettings framework.' };
+    return { success: false, message: UNSUPPORTED_MESSAGE };
   }
 
   async unblockDevice(device: Device): Promise<ControlResult> {
     await this.createCommand(device.id, CommandType.UNBLOCK_APPS, JSON.stringify({ action: 'unblock' }));
-    return { success: true, message: 'Unblock command synced to iOS agent' };
+    return { success: false, message: UNSUPPORTED_MESSAGE };
   }
 
   async extendSession(device: Device, minutes: number): Promise<ControlResult> {
     await this.createCommand(device.id, CommandType.SYNC_RULES, JSON.stringify({ extendMinutes: minutes }));
-    return { success: true, message: `Extend ${minutes}min synced to iOS agent` };
+    return { success: false, message: UNSUPPORTED_MESSAGE };
   }
 
   async getStatus(device: Device): Promise<AdapterDeviceStatus> {

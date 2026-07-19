@@ -137,15 +137,15 @@ model User {
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
-  children       Child[]
-  devices        Device[]
-  sessions       Session[]
-  gateways       Gateway[]
-  oauthAccounts  OAuthAccount[]
-  notifications  NotificationEvent[]
-  auditLogs      AuditLog[]
-  subscription   Subscription?
-  pushTokens     PushToken[]
+  children      Child[]
+  devices       Device[]
+  sessions      Session[]
+  gateways      Gateway[]
+  oauthAccounts OAuthAccount[]
+  notifications NotificationEvent[]
+  auditLogs     AuditLog[]
+  subscription  Subscription?
+  pushTokens    PushToken[]
 
   @@map("users")
 }
@@ -154,31 +154,31 @@ model PushToken {
   id         String   @id @default(uuid())
   userId     String   @map("user_id")
   token      String   @unique
-  platform   String   // ios | android | web
+  platform   String // ios | android | web
   createdAt  DateTime @default(now())
   lastUsedAt DateTime @default(now()) @map("last_used_at")
 
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("push_tokens")
 }
 
 model Child {
-  id            String   @id @default(uuid())
-  parentId      String   @map("parent_id")
-  name          String
-  avatar        String?
-  age           Int?
-  defaultLimit  Int?     @map("default_limit_minutes")
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id           String   @id @default(uuid())
+  parentId     String   @map("parent_id")
+  name         String
+  avatar       String?
+  age          Int?
+  defaultLimit Int?     @map("default_limit_minutes")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  parent        User     @relation(fields: [parentId], references: [id], onDelete: Cascade)
-  devices       Device[]
-  rules         Rule[]
-  sessions      Session[]
-  usageLogs     UsageLog[]
+  parent         User            @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  devices        Device[]
+  rules          Rule[]
+  sessions       Session[]
+  usageLogs      UsageLog[]
   categoryBlocks CategoryBlock[]
 
   @@index([parentId])
@@ -186,57 +186,57 @@ model Child {
 }
 
 model Device {
-  id             String         @id @default(uuid())
-  childId        String?        @map("child_id")
-  parentId       String         @map("parent_id")
-  name           String
-  type           DeviceType
-  platform       String?
-  macAddress     String?        @map("mac_address")
-  ipAddress      String?        @map("ip_address")
-  status         DeviceStatus   @default(ONLINE)
-  controlMethod  ControlMethod  @default(MOCK)
-  lastSeen       DateTime?      @map("last_seen")
-  dnsSourceIp    String?        @map("dns_source_ip")
-  dnsConfigured  Boolean        @default(false) @map("dns_configured")
-  lastDnsSeenAt  DateTime?      @map("last_dns_seen_at")
-  blockingMode   BlockingMode   @default(GAMING_ONLY) @map("blocking_mode")
-  internetLocked Boolean        @default(false) @map("internet_locked")
-  internetLockedReason String?  @map("internet_locked_reason")
-  internetLockedAt DateTime?    @map("internet_locked_at")
-  protectionStatus ProtectionStatus @default(NORMAL) @map("protection_status")
-  protectionScore  Int      @default(100) @map("protection_score")
-  lastBypassDetectedAt DateTime? @map("last_bypass_detected_at")
-  bypassAttempts   Int      @default(0) @map("bypass_attempts")
-  typicalActiveHours Json?  @map("typical_active_hours")
-  dnsQueryPatternHash String? @map("dns_query_pattern_hash")
-  dailyLimitMinutes Int?   @map("daily_limit_minutes")
-  bedtimeStart     String? @map("bedtime_start")
-  bedtimeEnd       String? @map("bedtime_end")
-  autoBlockEnabled Boolean @default(false) @map("auto_block_enabled")
-  offlineControlEnabled Boolean @default(false) @map("offline_control_enabled")
-  offlineControlMethod  String? @map("offline_control_method")
-  offlineSetupCompletedAt DateTime? @map("offline_setup_completed_at")
-  offlineSetupVerified  Boolean @default(false) @map("offline_setup_verified")
-  offlineControlNotes   String? @map("offline_control_notes")
-  gatewayId      String?        @map("gateway_id")
-  hostname       String?        @map("hostname")
-  dhcpClientId   String?        @map("dhcp_client_id")
-  vendorOui      String?        @map("vendor_oui")
-  osHint         String?        @map("os_hint")
-  fingerprintHash String?       @map("fingerprint_hash")
-  fingerprintUpdatedAt DateTime? @map("fingerprint_updated_at")
-  vpnBlockEnabled Boolean       @default(true) @map("vpn_block_enabled")
-  quicBlockEnabled Boolean      @default(false) @map("quic_block_enabled")
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  id                      String           @id @default(uuid())
+  childId                 String?          @map("child_id")
+  parentId                String           @map("parent_id")
+  name                    String
+  type                    DeviceType
+  platform                String?
+  macAddress              String?          @map("mac_address")
+  ipAddress               String?          @map("ip_address")
+  status                  DeviceStatus     @default(ONLINE)
+  controlMethod           ControlMethod    @default(MOCK)
+  lastSeen                DateTime?        @map("last_seen")
+  dnsSourceIp             String?          @map("dns_source_ip")
+  dnsConfigured           Boolean          @default(false) @map("dns_configured")
+  lastDnsSeenAt           DateTime?        @map("last_dns_seen_at")
+  blockingMode            BlockingMode     @default(GAMING_ONLY) @map("blocking_mode")
+  internetLocked          Boolean          @default(false) @map("internet_locked")
+  internetLockedReason    String?          @map("internet_locked_reason")
+  internetLockedAt        DateTime?        @map("internet_locked_at")
+  protectionStatus        ProtectionStatus @default(NORMAL) @map("protection_status")
+  protectionScore         Int              @default(100) @map("protection_score")
+  lastBypassDetectedAt    DateTime?        @map("last_bypass_detected_at")
+  bypassAttempts          Int              @default(0) @map("bypass_attempts")
+  typicalActiveHours      Json?            @map("typical_active_hours")
+  dnsQueryPatternHash     String?          @map("dns_query_pattern_hash")
+  dailyLimitMinutes       Int?             @map("daily_limit_minutes")
+  bedtimeStart            String?          @map("bedtime_start")
+  bedtimeEnd              String?          @map("bedtime_end")
+  autoBlockEnabled        Boolean          @default(false) @map("auto_block_enabled")
+  offlineControlEnabled   Boolean          @default(false) @map("offline_control_enabled")
+  offlineControlMethod    String?          @map("offline_control_method")
+  offlineSetupCompletedAt DateTime?        @map("offline_setup_completed_at")
+  offlineSetupVerified    Boolean          @default(false) @map("offline_setup_verified")
+  offlineControlNotes     String?          @map("offline_control_notes")
+  gatewayId               String?          @map("gateway_id")
+  hostname                String?          @map("hostname")
+  dhcpClientId            String?          @map("dhcp_client_id")
+  vendorOui               String?          @map("vendor_oui")
+  osHint                  String?          @map("os_hint")
+  fingerprintHash         String?          @map("fingerprint_hash")
+  fingerprintUpdatedAt    DateTime?        @map("fingerprint_updated_at")
+  vpnBlockEnabled         Boolean          @default(true) @map("vpn_block_enabled")
+  quicBlockEnabled        Boolean          @default(false) @map("quic_block_enabled")
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
 
-  child          Child?         @relation(fields: [childId], references: [id], onDelete: SetNull)
-  parent         User           @relation(fields: [parentId], references: [id], onDelete: Cascade)
-  gateway        Gateway?       @relation(fields: [gatewayId], references: [id], onDelete: SetNull)
-  sessions       Session[]
-  usageLogs      UsageLog[]
-  commands       Command[]
+  child            Child?                   @relation(fields: [childId], references: [id], onDelete: SetNull)
+  parent           User                     @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  gateway          Gateway?                 @relation(fields: [gatewayId], references: [id], onDelete: SetNull)
+  sessions         Session[]
+  usageLogs        UsageLog[]
+  commands         Command[]
   offlineChecklist OfflineControlChecklist?
 
   // DNS policy hot path resolves a device by source IP on every cache miss.
@@ -316,47 +316,48 @@ model OfflineControlChecklist {
 }
 
 model Rule {
-  id              String    @id @default(uuid())
-  childId         String    @map("child_id")
-  type            RuleType
-  value           String
-  startTime       String?   @map("start_time")
-  endTime         String?   @map("end_time")
-  daysOfWeek      String?   @map("days_of_week")
-  blockedApps     String[]  @map("blocked_apps")
+  id                String   @id @default(uuid())
+  childId           String   @map("child_id")
+  type              RuleType
+  value             String
+  startTime         String?  @map("start_time")
+  endTime           String?  @map("end_time")
+  daysOfWeek        String?  @map("days_of_week")
+  blockedApps       String[] @map("blocked_apps")
   blockedCategories String[] @map("blocked_categories")
-  extraMinutes    Int?      @map("extra_minutes")
-  active          Boolean   @default(true)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  extraMinutes      Int?     @map("extra_minutes")
+  active            Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
-  child           Child     @relation(fields: [childId], references: [id], onDelete: Cascade)
+  child Child @relation(fields: [childId], references: [id], onDelete: Cascade)
 
+  @@index([childId, active])
   @@map("rules")
 }
 
 model Session {
-  id              String        @id @default(uuid())
-  deviceId        String        @map("device_id")
-  childId         String        @map("child_id")
-  parentId        String        @map("parent_id")
-  status          SessionStatus @default(ACTIVE)
-  startedAt       DateTime      @default(now()) @map("started_at")
-  pausedAt        DateTime?     @map("paused_at")
-  resumedAt       DateTime?     @map("resumed_at")
-  stoppedAt       DateTime?     @map("stopped_at")
-  expiredAt       DateTime?     @map("expired_at")
-  durationMinutes Int           @map("duration_minutes")
-  remainingMinutes Int          @map("remaining_minutes")
-  extendedMinutes Int           @default(0) @map("extended_minutes")
-  violated        Boolean       @default(false)
-  activeApp       String?       @map("active_app")
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  id               String        @id @default(uuid())
+  deviceId         String        @map("device_id")
+  childId          String        @map("child_id")
+  parentId         String        @map("parent_id")
+  status           SessionStatus @default(ACTIVE)
+  startedAt        DateTime      @default(now()) @map("started_at")
+  pausedAt         DateTime?     @map("paused_at")
+  resumedAt        DateTime?     @map("resumed_at")
+  stoppedAt        DateTime?     @map("stopped_at")
+  expiredAt        DateTime?     @map("expired_at")
+  durationMinutes  Int           @map("duration_minutes")
+  remainingMinutes Int           @map("remaining_minutes")
+  extendedMinutes  Int           @default(0) @map("extended_minutes")
+  violated         Boolean       @default(false)
+  activeApp        String?       @map("active_app")
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 
-  device          Device        @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  child           Child         @relation(fields: [childId], references: [id], onDelete: Cascade)
-  parent          User          @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  child  Child  @relation(fields: [childId], references: [id], onDelete: Cascade)
+  parent User   @relation(fields: [parentId], references: [id], onDelete: Cascade)
 
   // DNS policy + session lookups filter by device and status.
   @@index([deviceId, status])
@@ -373,8 +374,8 @@ model UsageLog {
   durationSec Int      @map("duration_seconds")
   loggedAt    DateTime @default(now()) @map("logged_at")
 
-  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  child       Child    @relation(fields: [childId], references: [id], onDelete: Cascade)
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  child  Child  @relation(fields: [childId], references: [id], onDelete: Cascade)
 
   @@index([deviceId, loggedAt])
   @@index([childId, loggedAt])
@@ -382,49 +383,133 @@ model UsageLog {
 }
 
 model Command {
-  id          String         @id @default(uuid())
-  deviceId    String         @map("device_id")
+  id          String        @id @default(uuid())
+  deviceId    String        @map("device_id")
   type        CommandType
   payload     String?
-  status      CommandStatus  @default(PENDING)
-  deliveredAt DateTime?      @map("delivered_at")
-  ackedAt     DateTime?      @map("acked_at")
-  createdAt   DateTime       @default(now())
+  status      CommandStatus @default(PENDING)
+  deliveredAt DateTime?     @map("delivered_at")
+  ackedAt     DateTime?     @map("acked_at")
+  createdAt   DateTime      @default(now())
 
-  device      Device         @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-  acks        CommandAck[]
+  device Device       @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  acks   CommandAck[]
 
+  @@index([deviceId, status])
   @@map("commands")
 }
 
 model CommandAck {
-  id          String   @id @default(uuid())
-  commandId   String   @map("command_id")
-  success     Boolean
-  resultData  String?  @map("result_data")
-  ackedAt     DateTime @default(now()) @map("acked_at")
+  id         String   @id @default(uuid())
+  commandId  String   @map("command_id")
+  success    Boolean
+  resultData String?  @map("result_data")
+  ackedAt    DateTime @default(now()) @map("acked_at")
 
-  command     Command  @relation(fields: [commandId], references: [id], onDelete: Cascade)
+  command Command @relation(fields: [commandId], references: [id], onDelete: Cascade)
 
+  @@index([commandId])
   @@map("command_acks")
 }
 
 model Gateway {
-  id            String   @id @default(uuid())
-  parentId      String   @map("parent_id")
-  name          String
-  token         String   @unique
-  endpoint      String?
-  paired        Boolean  @default(false)
-  pairedAt      DateTime? @map("paired_at")
-  lastSeen      DateTime? @map("last_seen")
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id        String    @id @default(uuid())
+  parentId  String    @map("parent_id")
+  name      String
+  token     String    @unique
+  endpoint  String?
+  paired    Boolean   @default(false)
+  pairedAt  DateTime? @map("paired_at")
+  lastSeen  DateTime? @map("last_seen")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
 
-  parent        User     @relation(fields: [parentId], references: [id], onDelete: Cascade)
-  devices       Device[]
+  parent  User     @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  devices Device[]
 
+  @@index([parentId])
   @@map("gateways")
+}
+
+enum RouterIntegrationStatus {
+  OFFICIAL_API
+  GUIDE_ONLY
+  UNDETECTED
+}
+
+enum RouterDetectionMethod {
+  UPNP
+  SSDP
+  MDNS
+  DHCP_FINGERPRINT
+  HTTP_HEADER
+  OUI_LOOKUP
+  MANUAL
+}
+
+enum RouterCommandType {
+  DETECT
+  TEST_CONNECTION
+  CHANGE_DNS
+  PAUSE_DEVICE
+  RESUME_DEVICE
+  DISCONNECT_CLIENT
+  APPLY_FIREWALL_RULE
+  REMOVE_FIREWALL_RULE
+  BLOCK_MAC
+  UNBLOCK_MAC
+  END_GAMING_SESSION
+}
+
+/// Router Integration Engine: the router actually detected on a gateway's
+/// LAN, and whichever vendor plugin (if any) GuardTime can use to control
+/// it. One row per Gateway — a customer's gateway-agent sits near exactly
+/// one router. `adminCredentialsEncrypted` is AES-256-GCM ciphertext
+/// (see router-credentials.util.ts); it is decrypted only server-side when
+/// building a response for the owning, authenticated gateway, and is never
+/// logged or returned to the parent app.
+model DetectedRouter {
+  id                        String                  @id @default(cuid())
+  gatewayId                 String                  @unique @map("gateway_id")
+  vendor                    String?
+  model                     String?
+  firmwareVersion           String?                 @map("firmware_version")
+  pluginId                  String?                 @map("plugin_id")
+  integrationStatus         RouterIntegrationStatus @default(UNDETECTED) @map("integration_status")
+  detectionMethod           RouterDetectionMethod?  @map("detection_method")
+  confidence                Int?
+  macOui                    String?                 @map("mac_oui")
+  ipAddress                 String?                 @map("ip_address")
+  hostname                  String?
+  adminCredentialsEncrypted String?                 @map("admin_credentials_encrypted")
+  lastDetectedAt            DateTime?               @map("last_detected_at")
+  lastTestedAt              DateTime?               @map("last_tested_at")
+  lastTestResult            Boolean?                @map("last_test_result")
+  createdAt                 DateTime                @default(now()) @map("created_at")
+  updatedAt                 DateTime                @updatedAt @map("updated_at")
+
+  @@map("detected_routers")
+}
+
+/// Layer 8 (Router Integration Engine): a durable, retryable queued action
+/// for gateway-agent to execute against the detected router — the same
+/// PENDING/DELIVERED/ACKNOWLEDGED/FAILED lifecycle as `Command`, reusing
+/// its `CommandStatus` enum, just scoped to a gateway instead of a device.
+model RouterCommand {
+  id          String            @id @default(cuid())
+  gatewayId   String            @map("gateway_id")
+  deviceId    String?           @map("device_id")
+  type        RouterCommandType
+  payload     String?
+  status      CommandStatus     @default(PENDING)
+  resultData  String?           @map("result_data")
+  createdAt   DateTime          @default(now())
+  deliveredAt DateTime?         @map("delivered_at")
+  ackedAt     DateTime?         @map("acked_at")
+
+  @@index([gatewayId, status])
+  @@index([deviceId])
+  @@map("router_commands")
 }
 
 model OAuthAccount {
@@ -439,41 +524,43 @@ model OAuthAccount {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerUserId])
+  @@index([userId])
   @@map("oauth_accounts")
 }
 
 model NotificationEvent {
-  id          String           @id @default(uuid())
-  userId      String           @map("user_id")
-  type        NotificationType
-  title       String
-  message     String
-  deviceId    String?          @map("device_id")
-  childId     String?          @map("child_id")
-  sessionId   String?          @map("session_id")
-  read        Boolean          @default(false)
-  sentViaFcm  Boolean          @default(false) @map("sent_via_fcm")
-  createdAt   DateTime         @default(now())
+  id         String           @id @default(uuid())
+  userId     String           @map("user_id")
+  type       NotificationType
+  title      String
+  message    String
+  deviceId   String?          @map("device_id")
+  childId    String?          @map("child_id")
+  sessionId  String?          @map("session_id")
+  read       Boolean          @default(false)
+  sentViaFcm Boolean          @default(false) @map("sent_via_fcm")
+  createdAt  DateTime         @default(now())
 
-  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId, createdAt])
   @@map("notification_events")
 }
 
 model AuditLog {
-  id          String   @id @default(uuid())
-  userId      String?  @map("user_id")
-  action      String
-  entity      String
-  entityId    String?  @map("entity_id")
-  details     String?
-  ipAddress   String?  @map("ip_address")
-  createdAt   DateTime @default(now())
+  id        String   @id @default(uuid())
+  userId    String?  @map("user_id")
+  action    String
+  entity    String
+  entityId  String?  @map("entity_id")
+  details   String?
+  ipAddress String?  @map("ip_address")
+  createdAt DateTime @default(now())
 
-  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([entity, entityId])
   @@index([createdAt])
@@ -500,7 +587,7 @@ model CategoryBlock {
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
 
-  child     Child         @relation(fields: [childId], references: [id], onDelete: Cascade)
+  child Child @relation(fields: [childId], references: [id], onDelete: Cascade)
 
   @@unique([childId, category])
   @@map("category_blocks")
@@ -531,17 +618,17 @@ model DnsQueryLog {
 }
 
 model Subscription {
-  id           String           @id @default(uuid())
-  userId       String           @unique @map("user_id")
-  plan         SubscriptionPlan @default(FREE)
-  stripeId     String?          @map("stripe_id")
-  active       Boolean          @default(true)
-  currentPeriodStart DateTime?  @map("current_period_start")
-  currentPeriodEnd   DateTime?  @map("current_period_end")
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
+  id                 String           @id @default(uuid())
+  userId             String           @unique @map("user_id")
+  plan               SubscriptionPlan @default(FREE)
+  stripeId           String?          @map("stripe_id")
+  active             Boolean          @default(true)
+  currentPeriodStart DateTime?        @map("current_period_start")
+  currentPeriodEnd   DateTime?        @map("current_period_end")
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
 
-  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("subscriptions")
 }

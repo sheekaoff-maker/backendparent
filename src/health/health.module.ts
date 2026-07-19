@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CacheModule } from '@nestjs/cache-manager';
 import { redisStore } from 'cache-manager-redis-yet';
-import { getRedisConfig } from '../common/redis-config';
+import { getRedisConfig, getRedisCacheSocketOptions } from '../common/redis-config';
 import { PushModule } from '../push/push.module';
 import { HealthController } from './health.controller';
 import { HealthService } from './health.service';
@@ -15,7 +15,7 @@ import { HealthService } from './health.service';
         return {
           store: redisStore as any,
           url: cfg.url,
-          socket: { host: cfg.host, port: cfg.port, tls: cfg.tls },
+          socket: { host: cfg.host, port: cfg.port, tls: cfg.tls, ...getRedisCacheSocketOptions() },
           username: cfg.username,
           password: cfg.password,
           ttl: 5000,
