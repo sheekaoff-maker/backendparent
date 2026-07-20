@@ -194,6 +194,11 @@ model Device {
   platform                String?
   macAddress              String?          @map("mac_address")
   ipAddress               String?          @map("ip_address")
+  // Populated by gateway-agent's IPv6 neighbor-table discovery alongside
+  // ipAddress (v4). Enforcement (firewall/DNS-redirect/conntrack) mirrors
+  // every v4 rule with a v6 equivalent whenever this is set — see
+  // gateway-agent/src/iptables-controller.js / nftables-controller.js.
+  ipv6Address             String?          @map("ipv6_address")
   status                  DeviceStatus     @default(ONLINE)
   controlMethod           ControlMethod    @default(MOCK)
   lastSeen                DateTime?        @map("last_seen")

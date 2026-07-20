@@ -12,7 +12,7 @@ function buildPrisma(overrides: any = {}) {
 describe('GatewayService.listGateways', () => {
   it('scopes the query to the requesting parent and orders oldest first', async () => {
     const prisma = buildPrisma();
-    const service = new GatewayService(prisma);
+    const service = new GatewayService(prisma, { log: jest.fn() } as any);
 
     await service.listGateways('parent-1');
 
@@ -25,7 +25,7 @@ describe('GatewayService.listGateways', () => {
 
   it('returns whatever the query resolves (including an empty list for a parent with no gateways)', async () => {
     const prisma = buildPrisma({ gateway: { findMany: jest.fn().mockResolvedValue([{ id: 'gw-1', name: 'Home Router' }]) } });
-    const service = new GatewayService(prisma);
+    const service = new GatewayService(prisma, { log: jest.fn() } as any);
 
     const result = await service.listGateways('parent-1');
     expect(result).toEqual([{ id: 'gw-1', name: 'Home Router' }]);

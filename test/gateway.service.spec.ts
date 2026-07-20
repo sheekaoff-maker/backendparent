@@ -20,7 +20,7 @@ function buildPrisma(overrides: any = {}) {
 describe('GatewayService.updateDiscoveredDevices', () => {
   it('throws when the gateway does not exist', async () => {
     const prisma = buildPrisma({ gateway: { findUnique: jest.fn().mockResolvedValue(null) } });
-    const service = new GatewayService(prisma);
+    const service = new GatewayService(prisma, { log: jest.fn() } as any);
 
     await expect(service.updateDiscoveredDevices('missing-gw', [])).rejects.toThrow(NotFoundException);
   });
@@ -28,7 +28,7 @@ describe('GatewayService.updateDiscoveredDevices', () => {
   it('updates the matching device by MAC (unchanged pairing behaviour) and stamps a fingerprint hash', async () => {
     const existing = { id: 'dev-1', macAddress: '11:22:33:44:55:66', hostname: null, dhcpClientId: null, vendorOui: null };
     const prisma = buildPrisma({ device: { findFirst: jest.fn().mockResolvedValue(existing) } });
-    const service = new GatewayService(prisma);
+    const service = new GatewayService(prisma, { log: jest.fn() } as any);
 
     const result = await service.updateDiscoveredDevices('gw-1', [
       { ipAddress: '192.168.1.50', macAddress: '11:22:33:44:55:66', hostname: 'iphone-13', vendorOui: 'Apple' },
@@ -68,7 +68,7 @@ describe('GatewayService.updateDiscoveredDevices', () => {
       .mockResolvedValueOnce(null) // primary MAC lookup misses
       .mockResolvedValueOnce(knownDevice); // secondary hostname+dhcpClientId lookup hits
     const prisma = buildPrisma({ device: { findFirst } });
-    const service = new GatewayService(prisma);
+    const service = new GatewayService(prisma, { log: jest.fn() } as any);
 
     const result = await service.updateDiscoveredDevices('gw-1', [
       {
@@ -92,7 +92,7 @@ describe('GatewayService.updateDiscoveredDevices', () => {
 
   it('skips a discovered device that matches nothing (no premature device creation)', async () => {
     const prisma = buildPrisma();
-    const service = new GatewayService(prisma);
+    const service = new GatewayService(prisma, { log: jest.fn() } as any);
 
     const result = await service.updateDiscoveredDevices('gw-1', [
       { ipAddress: '192.168.1.99', macAddress: 'ff:ff:ff:ff:ff:ff' },

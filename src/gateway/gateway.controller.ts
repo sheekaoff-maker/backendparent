@@ -96,6 +96,36 @@ class VpnDetectionReportDto {
   detections: VpnDetectionDto[];
 }
 
+// Same shape as VpnDetectionDto — kept as a distinct class (not a type
+// alias) so Swagger documents it under its own name and either DTO can
+// diverge later without affecting the other.
+class DohDetectionDto {
+  @ApiProperty()
+  @IsString()
+  deviceId: string;
+
+  @ApiProperty()
+  @IsString()
+  provider: string;
+
+  @ApiProperty()
+  @IsString()
+  method: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  detail?: string;
+}
+
+class DohDetectionReportDto {
+  @ApiProperty({ type: [DohDetectionDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => DohDetectionDto)
+  detections: DohDetectionDto[];
+}
+
 @ApiTags('Gateway')
 @Controller('gateway')
 export class GatewayController {
@@ -172,5 +202,12 @@ export class GatewayController {
   @ApiOperation({ summary: 'Report VPN-signature detections (Layer 5) from gateway agent' })
   async reportVpnDetections(@Req() req: any, @Body() dto: VpnDetectionReportDto) {
     return this.gatewayService.recordVpnDetections(req.gateway.id, dto.detections ?? []);
+  }
+
+  @Post('doh-detections')
+  @UseGuards(GatewayTokenGuard)
+  @ApiOperation({ summary: 'Report DoH/DoT (encrypted DNS) detections (Layer 8) from gateway agent' })
+  async reportDohDetections(@Req() req: any, @Body() dto: DohDetectionReportDto) {
+    return this.gatewayService.recordDohDetections(req.gateway.id, dto.detections ?? []);
   }
 }

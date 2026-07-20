@@ -37,7 +37,7 @@ function device(overrides: any = {}) {
 describe('GatewayService.getPolicies bandwidth resolution (Layer 7)', () => {
   it('returns an empty bandwidthLimits array when none apply', async () => {
     const prisma = buildPrisma({ gateway: { findUnique: jest.fn().mockResolvedValue({ id: 'gw-1', devices: [device()] }) } });
-    const service = new GatewayService(prisma);
+    const service = new GatewayService(prisma, { log: jest.fn() } as any);
 
     const result = await service.getPolicies('gw-1');
 
@@ -53,7 +53,7 @@ describe('GatewayService.getPolicies bandwidth resolution (Layer 7)', () => {
           .mockResolvedValue([{ deviceId: 'dev-1', childId: null, category: null, downloadKbps: 5000, uploadKbps: 2000 }]),
       },
     });
-    const service = new GatewayService(prisma);
+    const service = new GatewayService(prisma, { log: jest.fn() } as any);
 
     const result = await service.getPolicies('gw-1');
 
@@ -74,7 +74,7 @@ describe('GatewayService.getPolicies bandwidth resolution (Layer 7)', () => {
           .mockResolvedValue([{ deviceId: null, childId: 'child-1', category: 'GAMING', downloadKbps: 512, uploadKbps: 512 }]),
       },
     });
-    const service = new GatewayService(prisma);
+    const service = new GatewayService(prisma, { log: jest.fn() } as any);
 
     const result = await service.getPolicies('gw-1');
 
@@ -92,7 +92,7 @@ describe('GatewayService.getPolicies bandwidth resolution (Layer 7)', () => {
         ]),
       },
     });
-    const service = new GatewayService(prisma);
+    const service = new GatewayService(prisma, { log: jest.fn() } as any);
 
     const result = await service.getPolicies('gw-1');
 
@@ -111,7 +111,7 @@ describe('GatewayService.getPolicies bandwidth resolution (Layer 7)', () => {
         findMany: jest.fn().mockResolvedValue([]),
       },
     });
-    const service = new GatewayService(prisma);
+    const service = new GatewayService(prisma, { log: jest.fn() } as any);
 
     const result = await service.getPolicies('gw-1');
 

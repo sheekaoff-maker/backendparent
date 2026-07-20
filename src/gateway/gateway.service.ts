@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nest
 import { PrismaService } from '../common/prisma.service';
 import { v4 as uuidv4 } from 'uuid';
 import { computeFingerprintHash } from './device-fingerprint.util';
+import { AuditService } from '../audit/audit.service';
 
 export interface DiscoveredDevice {
   ipAddress: string;
@@ -16,7 +17,10 @@ export interface DiscoveredDevice {
 export class GatewayService {
   private readonly logger = new Logger(GatewayService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private audit: AuditService,
+  ) {}
 
   /** Parent-facing: which gateways they own, so Flutter can pick one to operate against (e.g. Router Integration). */
   async listGateways(parentId: string) {
@@ -112,6 +116,7 @@ export class GatewayService {
             name: true,
             macAddress: true,
             ipAddress: true,
+            ipv6Address: true,
             dnsSourceIp: true,
             status: true,
             internetLocked: true,
@@ -138,6 +143,11 @@ export class GatewayService {
       dnsRedirect: {
         enabled: true,
         resolverIp: process.env.CONTROLLED_DNS_IP || process.env.DNS_SERVICE_IP || null,
+        // Nullable on purpose: an IPv6 DNAT rule pointed at a resolver with
+        // no IPv6 listener would just blackhole v6 DNS. gateway-agent skips
+        // the v6 DNS-redirect rule (but still applies v6 block/VPN/QUIC
+        // rules) whenever this is unset — see iptables-controller.js.
+        resolverIpv6: process.env.CONTROLLED_DNS_IPV6 || null,
       },
       devices: gateway.devices.map((device) => {
         const shouldBlock = device.internetLocked || device.status === 'BLOCKED';
@@ -147,6 +157,7 @@ export class GatewayService {
           name: device.name,
           macAddress: device.macAddress,
           ipAddress: device.ipAddress,
+          ipv6Address: device.ipv6Address,
           dnsSourceIp: device.dnsSourceIp,
           action: shouldBlock ? 'BLOCK' : shouldThrottle ? 'THROTTLE' : 'ALLOW',
           reason: shouldBlock
@@ -310,6 +321,51 @@ export class GatewayService {
       });
       this.logger.warn(
         `Recorded ${valid.length} VPN detection(s) on gateway ${gatewayId}: ${valid
+          .map((d) => `${d.deviceId}:${d.provider}`)
+          .join(', ')}`,
+      );
+    }
+
+    return { recorded: valid.length };
+  }
+
+  /**
+   * Layer 8 (DoH/DoT): encrypted-DNS detections go through AuditService
+   * rather than a dedicated table like VpnDetectionLog — same
+   * device-ownership validation, but this is a lower-volume, alert-shaped
+   * signal (a device using DoH is not itself an enforcement action the way
+   * a VPN detection can be), so the existing generic audit trail is the
+   * right fit instead of a second near-identical table.
+   */
+  async recordDohDetections(
+    gatewayId: string,
+    detections: Array<{ deviceId: string; provider: string; method: string; detail?: string }>,
+  ) {
+    if (detections.length === 0) return { recorded: 0 };
+
+    const gateway = await this.prisma.gateway.findUnique({ where: { id: gatewayId } });
+    if (!gateway) throw new NotFoundException('Gateway not found');
+
+    const deviceIds = [...new Set(detections.map((d) => d.deviceId))];
+    const knownDevices = await this.prisma.device.findMany({
+      where: { gatewayId, id: { in: deviceIds } },
+      select: { id: true },
+    });
+    const knownDeviceIds = new Set(knownDevices.map((d) => d.id));
+    const valid = detections.filter((d) => knownDeviceIds.has(d.deviceId));
+
+    for (const detection of valid) {
+      await this.audit.log({
+        action: 'doh_dot_detected',
+        entity: 'device',
+        entityId: detection.deviceId,
+        details: JSON.stringify({ provider: detection.provider, method: detection.method, detail: detection.detail }),
+      });
+    }
+
+    if (valid.length > 0) {
+      this.logger.warn(
+        `Recorded ${valid.length} DoH/DoT detection(s) on gateway ${gatewayId}: ${valid
           .map((d) => `${d.deviceId}:${d.provider}`)
           .join(', ')}`,
       );

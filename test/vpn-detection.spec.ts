@@ -1,6 +1,10 @@
 import { GatewayService } from '../src/gateway/gateway.service';
 import { NotFoundException } from '@nestjs/common';
 
+function buildAudit() {
+  return { log: jest.fn().mockResolvedValue(undefined) } as any;
+}
+
 function buildPrisma(overrides: any = {}) {
   return {
     gateway: {
@@ -22,7 +26,7 @@ function buildPrisma(overrides: any = {}) {
 describe('GatewayService.recordVpnDetections', () => {
   it('returns immediately without touching prisma when there is nothing to record', async () => {
     const prisma = buildPrisma();
-    const service = new GatewayService(prisma);
+    const service = new GatewayService(prisma, buildAudit());
 
     const result = await service.recordVpnDetections('gw-1', []);
 
@@ -32,7 +36,7 @@ describe('GatewayService.recordVpnDetections', () => {
 
   it('throws when the gateway does not exist', async () => {
     const prisma = buildPrisma({ gateway: { findUnique: jest.fn().mockResolvedValue(null) } });
-    const service = new GatewayService(prisma);
+    const service = new GatewayService(prisma, buildAudit());
 
     await expect(
       service.recordVpnDetections('missing-gw', [{ deviceId: 'dev-1', provider: 'NordVPN', method: 'dns-pattern' }]),
@@ -41,7 +45,7 @@ describe('GatewayService.recordVpnDetections', () => {
 
   it('persists detections only for devices that actually belong to this gateway', async () => {
     const prisma = buildPrisma();
-    const service = new GatewayService(prisma);
+    const service = new GatewayService(prisma, buildAudit());
 
     const result = await service.recordVpnDetections('gw-1', [
       { deviceId: 'dev-1', provider: 'NordVPN', method: 'dns-pattern', detail: 'nordvpn.com' },
@@ -58,7 +62,7 @@ describe('GatewayService.recordVpnDetections', () => {
 
   it('skips the createMany call entirely when every detection is for an unknown device', async () => {
     const prisma = buildPrisma({ device: { findMany: jest.fn().mockResolvedValue([]) } });
-    const service = new GatewayService(prisma);
+    const service = new GatewayService(prisma, buildAudit());
 
     const result = await service.recordVpnDetections('gw-1', [
       { deviceId: 'ghost-device', provider: 'Surfshark', method: 'dns-pattern' },
