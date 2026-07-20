@@ -7,9 +7,11 @@ import { XboxAdapter } from './adapters/xbox.adapter';
 import { NetworkGatewayAdapter } from './adapters/network-gateway.adapter';
 import { MockAdapter } from './adapters/mock.adapter';
 import { QueueModule } from '../queue/queue.module';
+import { DnsPolicyModule } from '../dns-policy/dns-policy.module';
+import { AuditModule } from '../audit/audit.module';
 
 @Module({
-  imports: [QueueModule],
+  imports: [QueueModule, DnsPolicyModule, AuditModule],
   controllers: [EnforcementController],
   providers: [
     EnforcementService,

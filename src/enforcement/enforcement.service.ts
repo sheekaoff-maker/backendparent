@@ -7,6 +7,8 @@ import { XboxAdapter } from './adapters/xbox.adapter';
 import { NetworkGatewayAdapter } from './adapters/network-gateway.adapter';
 import { MockAdapter } from './adapters/mock.adapter';
 import { Device, ControlMethod } from '@prisma/client';
+import { DnsPolicyService } from '../dns-policy/dns-policy.service';
+import { AuditService } from '../audit/audit.service';
 
 @Injectable()
 export class EnforcementService {
@@ -19,6 +21,8 @@ export class EnforcementService {
     private xboxAdapter: XboxAdapter,
     private networkGatewayAdapter: NetworkGatewayAdapter,
     private mockAdapter: MockAdapter,
+    private dnsPolicyService: DnsPolicyService,
+    private audit: AuditService,
   ) {
     this.adapters = new Map<ControlMethod, ControlAdapter>([
       [ControlMethod.ANDROID_AGENT, androidAdapter],
@@ -53,6 +57,14 @@ export class EnforcementService {
         where: { id: deviceId },
         data: { status: 'BLOCKED' },
       });
+      await this.invalidateDnsCache(device);
+      await this.audit.log({
+        userId: parentId,
+        action: 'device.block',
+        entity: 'device',
+        entityId: deviceId,
+        details: reason,
+      });
     }
     return result;
   }
@@ -68,8 +80,28 @@ export class EnforcementService {
         where: { id: deviceId },
         data: { status: 'ONLINE' },
       });
+      await this.invalidateDnsCache(device);
+      await this.audit.log({
+        userId: parentId,
+        action: 'device.unblock',
+        entity: 'device',
+        entityId: deviceId,
+      });
     }
     return result;
+  }
+
+  /**
+   * This path (block/unblock via a ControlAdapter — used for every
+   * NETWORK_GATEWAY device, i.e. every console/TV/streaming box this audit
+   * is actually about) only wrote device.status, never invalidated the
+   * DNS-policy cache the way devices.service.ts's lockInternet/unlockInternet
+   * already did — so a cached ALLOW decision (up to 30s TTL) could keep
+   * resolving DNS for a device the parent had just blocked. Same fix,
+   * applied here too.
+   */
+  private async invalidateDnsCache(device: { ipAddress: string | null; dnsSourceIp: string | null; ipv6Address: string | null }) {
+    await this.dnsPolicyService.invalidateSourceIps([device.ipAddress, device.dnsSourceIp, device.ipv6Address]);
   }
 
   async syncRules(deviceId: string, parentId?: string): Promise<ControlResult> {
@@ -93,7 +125,11 @@ export class EnforcementService {
 
     if (isOfflineGameUnsupported(device)) {
       if (device.gatewayId) {
-        await adapter.blockDevice(device, 'Session expired - offline game violation');
+        // Routed through this.blockDevice() (not adapter.blockDevice()
+        // directly) so a time-limit/offline-violation block gets the same
+        // device.status write + DNS-cache invalidation as a manual block —
+        // this path previously skipped both.
+        await this.blockDevice(device.id, 'Session expired - offline game violation');
       }
 
       return {
@@ -113,6 +149,6 @@ export class EnforcementService {
       };
     }
 
-    return adapter.blockDevice(device, 'Session expired');
+    return this.blockDevice(device.id, 'Session expired');
   }
 }

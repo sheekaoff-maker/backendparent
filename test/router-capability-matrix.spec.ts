@@ -29,9 +29,9 @@ describe('ROUTER_CAPABILITY_MATRIX', () => {
     }
   });
 
-  it('pluginImplemented is true only for fritzbox, mikrotik, and openwrt', () => {
+  it('pluginImplemented is true only for fritzbox, mikrotik, openwrt, and unifi', () => {
     const implemented = entries.filter(([, e]) => e.pluginImplemented).map(([id]) => id).sort();
-    expect(implemented).toEqual(['fritzbox', 'mikrotik', 'openwrt']);
+    expect(implemented).toEqual(['fritzbox', 'mikrotik', 'openwrt', 'unifi']);
   });
 
   it('a pluginImplemented row is never GUIDE_ONLY', () => {

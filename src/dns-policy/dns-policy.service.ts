@@ -116,10 +116,13 @@ export class DnsPolicyService {
       reason,
     });
 
-    // 1. Find device by sourceIp (ipAddress or dnsSourceIp)
+    // 1. Find device by sourceIp (ipAddress, dnsSourceIp, or ipv6Address —
+    // a device querying DNS over IPv6 must resolve to the same policy row
+    // as its v4 address, or IPv6 DNS traffic silently falls through to the
+    // "no device found" ALLOW path below).
     const device = await this.prisma.device.findFirst({
       where: {
-        OR: [{ ipAddress: sourceIp }, { dnsSourceIp: sourceIp }],
+        OR: [{ ipAddress: sourceIp }, { dnsSourceIp: sourceIp }, { ipv6Address: sourceIp }],
       },
     });
 

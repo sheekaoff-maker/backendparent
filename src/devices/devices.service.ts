@@ -171,9 +171,13 @@ export class DevicesService {
    * Best-effort: clear cached DNS decisions for a device's known IPs so the new
    * lock/unlock policy takes effect immediately instead of waiting for TTL.
    */
-  private async invalidateDnsCacheForDevice(device: { ipAddress: string | null; dnsSourceIp: string | null }) {
+  private async invalidateDnsCacheForDevice(device: {
+    ipAddress: string | null;
+    dnsSourceIp: string | null;
+    ipv6Address?: string | null;
+  }) {
     // Reliable, immediate invalidation: bump the per-IP DNS-policy cache version
     // so every cached decision for this device's IPs is instantly superseded.
-    await this.dnsPolicyService.invalidateSourceIps([device.ipAddress, device.dnsSourceIp]);
+    await this.dnsPolicyService.invalidateSourceIps([device.ipAddress, device.dnsSourceIp, device.ipv6Address]);
   }
 }

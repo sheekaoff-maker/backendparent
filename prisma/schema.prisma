@@ -271,6 +271,7 @@ model Device {
   // DNS policy hot path resolves a device by source IP on every cache miss.
   @@index([ipAddress])
   @@index([dnsSourceIp])
+  @@index([ipv6Address])
   @@index([parentId])
   @@index([gatewayId, macAddress])
   @@index([fingerprintHash])
