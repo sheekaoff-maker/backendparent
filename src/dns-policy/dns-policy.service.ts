@@ -48,6 +48,14 @@ export class DnsPolicyService {
     return `dnsver:${ip}`;
   }
 
+  private deviceIdKey(ip: string): string {
+    return `dnsdev:${ip}`;
+  }
+
+  private heartbeatKey(deviceId: string): string {
+    return `dnshb:${deviceId}`;
+  }
+
   private async getVersion(ip: string): Promise<number> {
     const v = await this.cacheManager.get<number>(this.versionKey(ip));
     return typeof v === 'number' ? v : 0;
@@ -80,6 +88,17 @@ export class DnsPolicyService {
     const cacheKey = `dns:${sourceIp}:${version}:${domain}`;
     const cached = await this.cacheManager.get<DnsPolicyResponseDto>(cacheKey);
     if (cached) {
+      // A cached decision must not mean a stale heartbeat — a device that
+      // keeps resolving the same hostname (idle telemetry pings, a game
+      // console polling one endpoint) would otherwise only get
+      // lastDnsSeenAt refreshed once per unique-domain cache miss, making
+      // ConnectionQuality flip to POOR/OFFLINE while the device is actively
+      // online. The short-TTL deviceId cache lets us touch the heartbeat on
+      // every cache hit too, without a DB lookup on the hot path.
+      const knownDeviceId = await this.cacheManager.get<string>(this.deviceIdKey(sourceIp));
+      if (knownDeviceId) {
+        this.touchHeartbeat(knownDeviceId);
+      }
       return cached;
     }
 
@@ -104,6 +123,12 @@ export class DnsPolicyService {
       },
     });
 
+    // Cache the sourceIp -> deviceId mapping (short TTL, matches the decision
+    // cache) so a subsequent cache-HIT can still touch the heartbeat below.
+    if (device) {
+      await this.cacheManager.set(this.deviceIdKey(sourceIp), device.id, 30000);
+    }
+
     if (!device) {
       await this.cacheManager.set(cacheKey, allowResponse, 30000);
       this.logQuery(domain, sourceIp, 'ALLOW');
@@ -120,7 +145,7 @@ export class DnsPolicyService {
       };
       await this.cacheManager.set(cacheKey, result, 30000);
       this.logQuery(domain, sourceIp, 'BLOCK', device.id);
-      this.updateDnsSeen(device.id);
+      this.touchHeartbeat(device.id);
       return result;
     }
 
@@ -134,7 +159,7 @@ export class DnsPolicyService {
       };
       await this.cacheManager.set(cacheKey, result, 30000);
       this.logQuery(domain, sourceIp, 'BLOCK');
-      this.updateDnsSeen(device.id);
+      this.touchHeartbeat(device.id);
       return result;
     }
 
@@ -143,7 +168,7 @@ export class DnsPolicyService {
       const result = blockResponse('MANUAL_BLOCK');
       await this.cacheManager.set(cacheKey, result, 30000);
       this.logQuery(domain, sourceIp, 'BLOCK');
-      this.updateDnsSeen(device.id);
+      this.touchHeartbeat(device.id);
       return result;
     }
 
@@ -169,7 +194,7 @@ export class DnsPolicyService {
         const result = blockResponse('TIME_LIMIT_EXCEEDED');
         await this.cacheManager.set(cacheKey, result, 30000);
         this.logQuery(domain, sourceIp, 'BLOCK');
-        this.updateDnsSeen(device.id);
+        this.touchHeartbeat(device.id);
         return result;
       }
     }
@@ -193,7 +218,7 @@ export class DnsPolicyService {
           };
           await this.cacheManager.set(cacheKey, result, 30000);
           this.logQuery(domain, sourceIp, 'BLOCK');
-          this.updateDnsSeen(device.id);
+          this.touchHeartbeat(device.id);
           return result;
         }
       }
@@ -201,14 +226,14 @@ export class DnsPolicyService {
       const result = blockResponse('DOMAIN_BLOCKED');
       await this.cacheManager.set(cacheKey, result, 30000);
       this.logQuery(domain, sourceIp, 'BLOCK');
-      this.updateDnsSeen(device.id);
+      this.touchHeartbeat(device.id);
       return result;
     }
 
     // 5. Allow — but log domain as unknown so admins can categorise it later
     await this.cacheManager.set(cacheKey, allowResponse, 30000);
     this.logQuery(domain, sourceIp, 'ALLOW', device.id);
-    this.updateDnsSeen(device.id);
+    this.touchHeartbeat(device.id);
     this.recordUnknownDomain(domain, sourceIp, device.id);
     return allowResponse;
   }
@@ -272,6 +297,24 @@ export class DnsPolicyService {
       .update({
         where: { id: deviceId },
         data: { lastDnsSeenAt: new Date() },
+      })
+      .catch(() => {});
+  }
+
+  /**
+   * Rate-limited heartbeat: at most one lastDnsSeenAt write per device every
+   * 10s, regardless of how many queries (cache hit or miss) arrive for it in
+   * that window. Keeps "instant" heartbeat freshness without turning every
+   * single DNS query into a Postgres write.
+   */
+  private touchHeartbeat(deviceId: string): void {
+    const key = this.heartbeatKey(deviceId);
+    this.cacheManager
+      .get(key)
+      .then((throttled) => {
+        if (throttled) return;
+        this.updateDnsSeen(deviceId);
+        return this.cacheManager.set(key, true, 10000);
       })
       .catch(() => {});
   }

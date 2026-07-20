@@ -176,6 +176,48 @@ describe('DnsPolicyService.checkPolicy — decision engine', () => {
     await service.checkPolicy({ sourceIp: '10.0.0.5', domain: 'bad.com' });
     expect(prisma.device.findFirst).toHaveBeenCalledTimes(2);
   });
+
+  // touchHeartbeat is fire-and-forget (checkPolicy never awaits it), so
+  // give its internal cache.get().then() chain a tick to settle before
+  // asserting on prisma.device.update.
+  const flush = () => Promise.resolve().then(() => Promise.resolve());
+
+  it('touches the heartbeat even on a cached decision (cache HIT), not only on miss', async () => {
+    const prisma = mockPrisma({ device: DEVICE, blockedDomains: [] });
+    const cache = fakeCache();
+    const service = svc(prisma, cache);
+
+    await service.checkPolicy({ sourceIp: '10.0.0.5', domain: 'ok.com' });
+    await flush();
+    expect(prisma.device.update).toHaveBeenCalledTimes(1);
+
+    // Simulate the heartbeat throttle window (not the decision cache)
+    // expiring between queries, without touching the decision cache key —
+    // this isolates "did the cache-HIT path even attempt a heartbeat" from
+    // "did throttling suppress the write".
+    cache._map.delete('dnshb:dev1');
+
+    await service.checkPolicy({ sourceIp: '10.0.0.5', domain: 'ok.com' });
+    await flush();
+
+    // Decision still came from cache — no second DB lookup for the device —
+    // yet the heartbeat was still written a second time.
+    expect(prisma.device.findFirst).toHaveBeenCalledTimes(1);
+    expect(prisma.device.update).toHaveBeenCalledTimes(2);
+  });
+
+  it('throttles heartbeat writes to at most one per 10s window', async () => {
+    const prisma = mockPrisma({ device: DEVICE, blockedDomains: [] });
+    const cache = fakeCache();
+    const service = svc(prisma, cache);
+
+    await service.checkPolicy({ sourceIp: '10.0.0.5', domain: 'ok.com' });
+    await flush();
+    await service.checkPolicy({ sourceIp: '10.0.0.5', domain: 'ok.com' });
+    await flush();
+
+    expect(prisma.device.update).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('DnsPolicyService.checkPolicy — STRICT MODE (anti-DoH)', () => {
