@@ -32,6 +32,7 @@ import { ProtectionModule } from './protection/protection.module';
 import { BandwidthModule } from './bandwidth/bandwidth.module';
 import { RouterIntegrationModule } from './router-integration/router-integration.module';
 import { MetricsModule } from './metrics/metrics.module';
+import { PairingModule } from './pairing/pairing.module';
 
 @Module({
   imports: [
@@ -59,6 +60,7 @@ import { MetricsModule } from './metrics/metrics.module';
     ChildrenModule,
     DevicesModule,
     DeviceHealthModule,
+    PairingModule,
     RulesModule,
     SessionsModule,
     UsageLogsModule,

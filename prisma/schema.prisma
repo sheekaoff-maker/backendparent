@@ -228,6 +228,27 @@ model Device {
   fingerprintUpdatedAt    DateTime?        @map("fingerprint_updated_at")
   vpnBlockEnabled         Boolean          @default(true) @map("vpn_block_enabled")
   quicBlockEnabled        Boolean          @default(false) @map("quic_block_enabled")
+  // --- DNS auto-pairing (replaces manual IP entry — see PairingSession) ---
+  paired                  Boolean          @default(false)
+  pairStatus              PairStatus       @default(WAITING) @map("pair_status")
+  pairedAt                DateTime?        @map("paired_at")
+  // Which dns-service instance/region completed the pairing handshake —
+  // meaningless today (one resolver), forward-compatible with a
+  // multi-region resolver fleet without a schema change later.
+  resolverRegion          String?          @map("resolver_region")
+  // Mirrors dnsSourceIp at the moment it's written — kept as a separate,
+  // display-oriented column (see PairingSession.confirm) so `dnsSourceIp`
+  // (the DNS-policy hot-path lookup key, already indexed and relied on by
+  // dns-policy.service.ts) is never repurposed for a UI concern.
+  publicIp                String?          @map("public_ip")
+  // Long-lived, non-expiring, non-single-use — issued once at pairing time.
+  // Reuses the exact same probe mechanism as the one-time pairing token
+  // (same `<token>.pair.guardtime.local` hostname pattern, same internal
+  // confirm endpoint) so the parent app can silently re-send the probe
+  // periodically / on network-change events to keep dnsSourceIp correct
+  // as the household's public IP changes over time — no re-pairing, no
+  // manual reconfiguration. See PairingService.confirmProbe.
+  dnsBeaconToken          String?          @unique @map("dns_beacon_token")
   createdAt               DateTime         @default(now())
   updatedAt               DateTime         @updatedAt
 
@@ -238,6 +259,9 @@ model Device {
   usageLogs        UsageLog[]
   commands         Command[]
   offlineChecklist OfflineControlChecklist?
+  pairingSessions  PairingSession[]
+  ipHistory        DeviceIpHistory[]
+  connectionEvents DeviceConnectionEvent[]
 
   // DNS policy hot path resolves a device by source IP on every cache miss.
   @@index([ipAddress])
@@ -245,7 +269,87 @@ model Device {
   @@index([parentId])
   @@index([gatewayId, macAddress])
   @@index([fingerprintHash])
+  @@index([pairStatus])
   @@map("devices")
+}
+
+enum PairStatus {
+  WAITING
+  PAIRED
+  EXPIRED
+  FAILED
+}
+
+/// Ephemeral pairing handshake state — one row per in-progress "Test DNS
+/// Connection" attempt. Deleted on successful confirm (the permanent
+/// record of that event lives in DeviceConnectionEvent instead); left to
+/// expire naturally otherwise. Never holds more than a few minutes of
+/// data per device, so no retention/cleanup job beyond the existing
+/// expiresAt check at read time — see PairingService.
+model PairingSession {
+  id        String     @id @default(cuid())
+  deviceId  String     @map("device_id")
+  parentId  String     @map("parent_id")
+  // UUID v4 (122 bits of randomness) — generated via crypto.randomUUID(),
+  // never derived from anything guessable (device id, timestamp, etc).
+  token     String     @unique
+  status    PairStatus @default(WAITING)
+  expiresAt DateTime   @map("expires_at")
+  // Incremented on every confirm attempt against this session — caps
+  // brute-force/replay attempts at the application layer in addition to
+  // the token's own 128-bit search space (see PairingService.MAX_ATTEMPTS).
+  attempts  Int        @default(0)
+  createdAt DateTime   @default(now()) @map("created_at")
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId])
+  @@index([expiresAt])
+  @@map("pairing_sessions")
+}
+
+/// Append-only, one row per distinct public IP a device has ever been
+/// seen from (upserted — NOT one row per DNS query, which would be
+/// unbounded). This is what "keep previous IP history" means in
+/// practice: a compact list of every network the device has connected
+/// through, not a query log (DnsQueryLog already exists for that).
+model DeviceIpHistory {
+  id          String   @id @default(cuid())
+  deviceId    String   @map("device_id")
+  ipAddress   String   @map("ip_address")
+  firstSeenAt DateTime @default(now()) @map("first_seen_at")
+  lastSeenAt  DateTime @default(now()) @map("last_seen_at")
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, ipAddress])
+  @@index([deviceId, lastSeenAt])
+  @@map("device_ip_history")
+}
+
+enum ConnectionEventType {
+  PAIRED
+  UNPAIRED
+  IP_CHANGED
+  RECONNECTED
+  CONNECTION_LOST
+}
+
+/// Permanent audit trail for the pairing/connection lifecycle — separate
+/// from DeviceIpHistory (which tracks *which IPs*) so "what happened and
+/// when" stays queryable without scanning the IP table.
+model DeviceConnectionEvent {
+  id        String              @id @default(cuid())
+  deviceId  String              @map("device_id")
+  type      ConnectionEventType
+  ipAddress String?             @map("ip_address")
+  metadata  Json?
+  createdAt DateTime            @default(now()) @map("created_at")
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, createdAt])
+  @@map("device_connection_events")
 }
 
 model UnknownDomainLog {

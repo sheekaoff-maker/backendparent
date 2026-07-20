@@ -13,7 +13,7 @@ export class DevicesService {
   ) {}
 
   async create(parentId: string, dto: CreateDeviceDto) {
-    return this.prisma.device.create({
+    const device = await this.prisma.device.create({
       data: {
         parentId,
         childId: dto.childId,
@@ -26,6 +26,7 @@ export class DevicesService {
         gatewayId: dto.gatewayId,
       },
     });
+    return this.redact(device);
   }
 
   async findAll(parentId: string) {
@@ -53,12 +54,22 @@ export class DevicesService {
   private withSupport<T extends { type: any }>(device: T) {
     const support = getPlatformSupport(device.type);
     return {
-      ...device,
+      ...this.redact(device),
       offlineControlSupported: support.offlineControlSupported,
       offlineControlMethod: support.offlineControlMethod,
       recommendedControlMethod: support.recommendedControlMethod,
       supportNotes: support.notes,
     };
+  }
+
+  /**
+   * dnsBeaconToken is a long-lived pairing/reaffirmation credential — it must
+   * only ever be returned from the pairing endpoints that actually need it
+   * (PairingService.getStatus), never from general device CRUD responses.
+   */
+  private redact<T extends Record<string, unknown>>(device: T): Omit<T, 'dnsBeaconToken'> {
+    const { dnsBeaconToken: _dnsBeaconToken, ...rest } = device;
+    return rest;
   }
 
   async findById(id: string) {
@@ -72,10 +83,11 @@ export class DevicesService {
 
   async update(parentId: string, id: string, dto: UpdateDeviceDto) {
     await this.findOne(parentId, id);
-    return this.prisma.device.update({
+    const device = await this.prisma.device.update({
       where: { id },
       data: dto,
     });
+    return this.redact(device);
   }
 
   async remove(parentId: string, id: string) {
