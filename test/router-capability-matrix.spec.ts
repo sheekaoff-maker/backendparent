@@ -3,8 +3,8 @@ import { ROUTER_CAPABILITY_MATRIX } from '../src/router-integration/router-capab
 describe('ROUTER_CAPABILITY_MATRIX', () => {
   const entries = Object.entries(ROUTER_CAPABILITY_MATRIX);
 
-  it('has exactly 29 rows (10 official-API + 19 guide-only, covering 27 distinct vendor names)', () => {
-    expect(entries).toHaveLength(29);
+  it('has exactly 36 rows (11 official-API + 25 guide-only)', () => {
+    expect(entries).toHaveLength(36);
   });
 
   it('every OFFICIAL_API row cites a real doc URL and a protocol', () => {
@@ -29,9 +29,11 @@ describe('ROUTER_CAPABILITY_MATRIX', () => {
     }
   });
 
-  it('pluginImplemented is true only for fritzbox, mikrotik, openwrt, and unifi', () => {
+  it('pluginImplemented is true only for the 11 real plugins', () => {
     const implemented = entries.filter(([, e]) => e.pluginImplemented).map(([id]) => id).sort();
-    expect(implemented).toEqual(['fritzbox', 'mikrotik', 'openwrt', 'unifi']);
+    expect(implemented).toEqual(
+      ['draytek', 'edgerouter', 'fritzbox', 'glinet', 'keenetic', 'linksys', 'mikrotik', 'openwrt', 'tplink_omada', 'unifi', 'zyxel_nebula'].sort(),
+    );
   });
 
   it('a pluginImplemented row is never GUIDE_ONLY', () => {

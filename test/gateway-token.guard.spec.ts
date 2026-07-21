@@ -2,10 +2,16 @@ import { createHmac, createHash } from 'crypto';
 import { UnauthorizedException } from '@nestjs/common';
 import { GatewayTokenGuard } from '../src/common/guards/gateway-token.guard';
 
-const GATEWAY = { id: 'gw-1', token: 'tok-123', paired: true };
+const GATEWAY = { id: 'gw-1', token: 'tok-123', paired: true, previousToken: null, previousTokenExpiresAt: null };
 
-function buildPrisma(gateway: any = GATEWAY) {
-  return { gateway: { findUnique: jest.fn().mockResolvedValue(gateway) } } as any;
+function buildPrisma(gateway: any = GATEWAY, overrides: any = {}) {
+  return {
+    gateway: {
+      findUnique: jest.fn().mockResolvedValue(gateway),
+      findFirst: jest.fn().mockResolvedValue(null),
+      ...overrides,
+    },
+  } as any;
 }
 
 function buildContext(headers: Record<string, string>, method = 'GET', url = '/gateway/policies', body: any = {}) {
@@ -135,5 +141,71 @@ describe('GatewayTokenGuard', () => {
     );
 
     await expect(guard.canActivate(context)).rejects.toThrow(/Invalid request signature/);
+  });
+});
+
+describe('GatewayTokenGuard — previousToken grace period', () => {
+  it('accepts the previous token while it is still within its grace window, and flags usedPreviousToken', async () => {
+    const rotated = {
+      id: 'gw-1',
+      token: 'new-tok',
+      previousToken: 'old-tok',
+      previousTokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      paired: true,
+    };
+    const prisma = buildPrisma(null, { findFirst: jest.fn().mockResolvedValue(rotated) });
+    const guard = new GatewayTokenGuard(prisma);
+    const request: any = { headers: { 'x-gateway-token': 'old-tok' }, method: 'GET', url: '/gateway/policies', body: {} };
+    const context = { switchToHttp: () => ({ getRequest: () => request }) } as any;
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(request.usedPreviousToken).toBe(true);
+    expect(request.gateway).toBe(rotated);
+    expect(prisma.gateway.findFirst).toHaveBeenCalledWith({
+      where: { previousToken: 'old-tok', previousTokenExpiresAt: { gt: expect.any(Date) } },
+    });
+  });
+
+  it('rejects the previous token once its grace window has expired (findFirst\'s own gt-filter excludes it, so it resolves null)', async () => {
+    const prisma = buildPrisma(null, { findFirst: jest.fn().mockResolvedValue(null) });
+    const guard = new GatewayTokenGuard(prisma);
+    const context = buildContext({ 'x-gateway-token': 'old-tok' });
+
+    await expect(guard.canActivate(context)).rejects.toThrow(UnauthorizedException);
+  });
+
+  it('does not query previousToken at all when the current token already matched', async () => {
+    const prisma = buildPrisma();
+    const guard = new GatewayTokenGuard(prisma);
+    const context = buildContext({ 'x-gateway-token': 'tok-123' });
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(prisma.gateway.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('sets usedPreviousToken to false on a normal current-token request', async () => {
+    const guard = new GatewayTokenGuard(buildPrisma());
+    const request: any = { headers: { 'x-gateway-token': 'tok-123' }, method: 'GET', url: '/gateway/policies', body: {} };
+    const context = { switchToHttp: () => ({ getRequest: () => request }) } as any;
+
+    await guard.canActivate(context);
+    expect(request.usedPreviousToken).toBe(false);
+  });
+
+  it('verifies a signature made with the OLD token when authenticated via the grace-period path', async () => {
+    const rotated = {
+      id: 'gw-1',
+      token: 'new-tok',
+      previousToken: 'old-tok',
+      previousTokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      paired: true,
+    };
+    const prisma = buildPrisma(null, { findFirst: jest.fn().mockResolvedValue(rotated) });
+    const guard = new GatewayTokenGuard(prisma);
+    const timestamp = String(Date.now());
+    const signature = sign('old-tok', 'GET', '/gateway/policies', {}, timestamp);
+    const context = buildContext({ 'x-gateway-token': 'old-tok', 'x-gateway-timestamp': timestamp, 'x-gateway-signature': signature });
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
   });
 });

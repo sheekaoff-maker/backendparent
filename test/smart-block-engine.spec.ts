@@ -102,3 +102,65 @@ describe('SmartBlockEngineService.endGamingSession', () => {
     expect(result.reason).toBe('No router has been detected on this gateway yet.');
   });
 });
+
+describe('SmartBlockEngineService.syncBlockToRouter / syncUnblockToRouter', () => {
+  const capabilityEngine = new CapabilityEngineService(new RouterDatabaseService());
+
+  it('does not require gateway ownership verification — no parentId param, unlike endGamingSession (called internally by EnforcementService, which already authorized the request)', async () => {
+    const prisma = buildPrisma({ detectedRouter: { findUnique: jest.fn().mockResolvedValue({ pluginId: 'mikrotik' }) } });
+    const service = new SmartBlockEngineService(prisma, capabilityEngine, buildRouterCommandService());
+
+    await expect(service.syncBlockToRouter('gw-1', 'dev-1')).resolves.toBeDefined();
+    expect(prisma.gateway.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('builds a persistent-block strategy list that excludes DISCONNECT_CLIENT (transient) and CHANGE_DNS (router-wide, not device-scoped)', async () => {
+    const prisma = buildPrisma({ detectedRouter: { findUnique: jest.fn().mockResolvedValue({ pluginId: 'mikrotik' }) } });
+    const routerCommandService = buildRouterCommandService();
+    const service = new SmartBlockEngineService(prisma, capabilityEngine, routerCommandService);
+
+    const result = await service.syncBlockToRouter('gw-1', 'dev-1');
+
+    expect(result.strategies).toEqual(['PAUSE_DEVICE', 'APPLY_FIREWALL_RULE', 'BLOCK_MAC']);
+    expect(result.strategies).not.toContain('DISCONNECT_CLIENT');
+    expect(result.strategies).not.toContain('CHANGE_DNS');
+    expect(routerCommandService.enqueueCommand).toHaveBeenCalledWith('gw-1', 'BLOCK_DEVICE', { deviceId: 'dev-1', strategies: result.strategies }, 'dev-1');
+  });
+
+  it('enqueues UNBLOCK_DEVICE with the same strategy list shape', async () => {
+    const prisma = buildPrisma({ detectedRouter: { findUnique: jest.fn().mockResolvedValue({ pluginId: 'mikrotik' }) } });
+    const routerCommandService = buildRouterCommandService();
+    const service = new SmartBlockEngineService(prisma, capabilityEngine, routerCommandService);
+
+    const result = await service.syncUnblockToRouter('gw-1', 'dev-1');
+
+    expect(result.strategies).toEqual(['PAUSE_DEVICE', 'APPLY_FIREWALL_RULE', 'BLOCK_MAC']);
+    expect(routerCommandService.enqueueCommand).toHaveBeenCalledWith('gw-1', 'UNBLOCK_DEVICE', { deviceId: 'dev-1', strategies: result.strategies }, 'dev-1');
+  });
+
+  it('returns enqueued:false with a Guide-Only reason for a router with no supported per-device strategy', async () => {
+    const prisma = buildPrisma({ detectedRouter: { findUnique: jest.fn().mockResolvedValue({ pluginId: 'netgear' }) } });
+    const routerCommandService = buildRouterCommandService();
+    const service = new SmartBlockEngineService(prisma, capabilityEngine, routerCommandService);
+
+    const result = await service.syncBlockToRouter('gw-1', 'dev-1');
+
+    expect(result).toEqual({
+      enqueued: false,
+      commandId: null,
+      strategies: [],
+      reason: 'This router has no supported control strategy (Guide Only) — see Supported Features for manual instructions.',
+    });
+    expect(routerCommandService.enqueueCommand).not.toHaveBeenCalled();
+  });
+
+  it('returns enqueued:false with an undetected-router reason when no router has been detected at all', async () => {
+    const prisma = buildPrisma({ detectedRouter: { findUnique: jest.fn().mockResolvedValue(null) } });
+    const service = new SmartBlockEngineService(prisma, capabilityEngine, buildRouterCommandService());
+
+    const result = await service.syncBlockToRouter('gw-1', 'dev-1');
+
+    expect(result.enqueued).toBe(false);
+    expect(result.reason).toBe('No router has been detected on this gateway yet.');
+  });
+});

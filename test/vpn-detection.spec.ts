@@ -60,6 +60,20 @@ describe('GatewayService.recordVpnDetections', () => {
     expect(createArg.data[0]).toMatchObject({ gatewayId: 'gw-1', provider: 'NordVPN', method: 'dns-pattern', detail: 'nordvpn.com' });
   });
 
+  it('persists confidence and overallConfidence when the gateway sends them, and nulls them out when it does not', async () => {
+    const prisma = buildPrisma();
+    const service = new GatewayService(prisma, buildAudit());
+
+    await service.recordVpnDetections('gw-1', [
+      { deviceId: 'dev-1', provider: 'WireGuard', method: 'port-signature', detail: '51820', confidence: 90, overallConfidence: 90 },
+      { deviceId: 'dev-2', provider: 'NordVPN', method: 'dns-pattern', detail: 'nordvpn.com' },
+    ]);
+
+    const createArg = prisma.vpnDetectionLog.createMany.mock.calls[0][0];
+    expect(createArg.data[0]).toMatchObject({ confidence: 90, overallConfidence: 90 });
+    expect(createArg.data[1]).toMatchObject({ confidence: null, overallConfidence: null });
+  });
+
   it('skips the createMany call entirely when every detection is for an unknown device', async () => {
     const prisma = buildPrisma({ device: { findMany: jest.fn().mockResolvedValue([]) } });
     const service = new GatewayService(prisma, buildAudit());

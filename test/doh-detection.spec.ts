@@ -63,6 +63,20 @@ describe('GatewayService.recordDohDetections', () => {
     );
   });
 
+  it('includes confidence in the audit-log details when the gateway sends it', async () => {
+    const prisma = buildPrisma();
+    const audit = buildAudit();
+    const service = new GatewayService(prisma, audit as any);
+
+    await service.recordDohDetections('gw-1', [
+      { deviceId: 'dev-1', provider: 'DoT', method: 'conntrack-port-853', detail: '853', confidence: 95 },
+    ]);
+
+    expect(audit.log).toHaveBeenCalledWith(
+      expect.objectContaining({ details: expect.stringContaining('"confidence":95') }),
+    );
+  });
+
   it('skips audit-logging entirely when every detection is for an unknown device', async () => {
     const prisma = buildPrisma({ device: { findMany: jest.fn().mockResolvedValue([]) } });
     const audit = buildAudit();

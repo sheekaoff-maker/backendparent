@@ -39,18 +39,38 @@ export class GatewayTokenGuard implements CanActivate {
     if (!token) {
       throw new UnauthorizedException('Missing gateway token');
     }
-    const gateway = await this.prisma.gateway.findUnique({ where: { token } });
+
+    let gateway = await this.prisma.gateway.findUnique({ where: { token } });
+    let usedPreviousToken = false;
+
+    // Grace-period fallback: a gateway-agent that hasn't picked up its
+    // rotated token yet (it only learns the new one from a policy-poll
+    // response — see getPolicies/rotateToken in gateway.service.ts) keeps
+    // authenticating with the old token until previousTokenExpiresAt, so a
+    // parent-triggered rotation never locks out an already-deployed agent.
+    if (!gateway) {
+      gateway = await this.prisma.gateway.findFirst({
+        where: { previousToken: token, previousTokenExpiresAt: { gt: new Date() } },
+      });
+      if (gateway) usedPreviousToken = true;
+    }
+
     if (!gateway || !gateway.paired) {
       throw new UnauthorizedException('Invalid or unpaired gateway token');
     }
 
+    // Signing is always keyed by whichever token the request actually
+    // authenticated with, so an agent still on its previous token isn't
+    // forced to also re-sign requests before it has fetched the new one.
+    const signingToken = usedPreviousToken ? gateway.previousToken! : gateway.token;
     const signature = request.headers['x-gateway-signature'] as string | undefined;
     const timestamp = request.headers['x-gateway-timestamp'] as string | undefined;
     if (signature || timestamp) {
-      this.verifySignature(request, gateway.token, signature, timestamp);
+      this.verifySignature(request, signingToken, signature, timestamp);
     }
 
     request.gateway = gateway;
+    request.usedPreviousToken = usedPreviousToken;
     return true;
   }
 

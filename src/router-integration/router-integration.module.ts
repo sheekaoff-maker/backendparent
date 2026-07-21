@@ -19,6 +19,6 @@ import { RouterIntegrationController } from './router-integration.controller';
     SmartBlockEngineService,
     RouterIntegrationService,
   ],
-  exports: [RouterDatabaseService, CapabilityEngineService, RouterCommandService],
+  exports: [RouterDatabaseService, CapabilityEngineService, RouterCommandService, SmartBlockEngineService],
 })
 export class RouterIntegrationModule {}

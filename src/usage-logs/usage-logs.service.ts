@@ -1,4 +1,9 @@
-import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { CreateUsageLogDto } from './dto/usage-log.dto';
 
@@ -7,12 +12,16 @@ export class UsageLogsService {
   constructor(private prisma: PrismaService) {}
 
   private async assertChildOwnership(parentId: string, childId: string) {
+    // A missing/blank childId must be a clean 400, not a 500 — Prisma's
+    // findUnique throws on `where: { id: undefined }`, so guard before it.
+    if (!childId) throw new BadRequestException('childId query parameter is required');
     const child = await this.prisma.child.findUnique({ where: { id: childId } });
     if (!child) throw new NotFoundException('Child not found');
     if (child.parentId !== parentId) throw new ForbiddenException('Not your child');
   }
 
   private async assertDeviceOwnership(parentId: string, deviceId: string) {
+    if (!deviceId) throw new BadRequestException('deviceId is required');
     const device = await this.prisma.device.findUnique({ where: { id: deviceId } });
     if (!device) throw new NotFoundException('Device not found');
     if (device.parentId !== parentId) throw new ForbiddenException('Not your device');

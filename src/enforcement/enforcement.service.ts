@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { ControlAdapter, ControlResult, getAdapterForDevice, isOfflineGameUnsupported } from './adapters/control-adapter.interface';
 import { AndroidAgentAdapter } from './adapters/android-agent.adapter';
@@ -9,10 +9,12 @@ import { MockAdapter } from './adapters/mock.adapter';
 import { Device, ControlMethod } from '@prisma/client';
 import { DnsPolicyService } from '../dns-policy/dns-policy.service';
 import { AuditService } from '../audit/audit.service';
+import { SmartBlockEngineService } from '../router-integration/smart-block-engine.service';
 
 @Injectable()
 export class EnforcementService {
   private readonly adapters: Map<ControlMethod, ControlAdapter>;
+  private readonly logger = new Logger(EnforcementService.name);
 
   constructor(
     private prisma: PrismaService,
@@ -23,6 +25,7 @@ export class EnforcementService {
     private mockAdapter: MockAdapter,
     private dnsPolicyService: DnsPolicyService,
     private audit: AuditService,
+    private smartBlockEngine: SmartBlockEngineService,
   ) {
     this.adapters = new Map<ControlMethod, ControlAdapter>([
       [ControlMethod.ANDROID_AGENT, androidAdapter],
@@ -65,6 +68,8 @@ export class EnforcementService {
         entityId: deviceId,
         details: reason,
       });
+      const routerSync = await this.syncToRouter(device, 'block');
+      return { ...result, data: { ...result.data, routerSync } };
     }
     return result;
   }
@@ -87,8 +92,42 @@ export class EnforcementService {
         entity: 'device',
         entityId: deviceId,
       });
+      const routerSync = await this.syncToRouter(device, 'unblock');
+      return { ...result, data: { ...result.data, routerSync } };
     }
     return result;
+  }
+
+  /**
+   * Explicit, immediate router-command convergence path for a block/unblock,
+   * on top of (not instead of) the existing gateway-agent policy poll cycle
+   * — closes the "up to one full poll interval to actually take effect at
+   * the router" gap. Best-effort: a device with no gatewayId (not behind a
+   * managed router) or a router sync failure never fails the overall
+   * block/unblock call, since the adapter-driven result above already
+   * succeeded and is the primary enforcement path; this is a confirmation
+   * of whether the faster path was also available, returned to the caller
+   * rather than swallowed silently.
+   */
+  private async syncToRouter(
+    device: Device,
+    action: 'block' | 'unblock',
+  ): Promise<{ attempted: boolean; enqueued: boolean; commandId: string | null; strategies: string[]; reason: string | null }> {
+    if (!device.gatewayId) {
+      return { attempted: false, enqueued: false, commandId: null, strategies: [], reason: 'device has no gateway' };
+    }
+
+    try {
+      const outcome =
+        action === 'block'
+          ? await this.smartBlockEngine.syncBlockToRouter(device.gatewayId, device.id)
+          : await this.smartBlockEngine.syncUnblockToRouter(device.gatewayId, device.id);
+      return { attempted: true, ...outcome };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Router ${action} sync failed for device ${device.id}: ${message}`);
+      return { attempted: true, enqueued: false, commandId: null, strategies: [], reason: message };
+    }
   }
 
   /**

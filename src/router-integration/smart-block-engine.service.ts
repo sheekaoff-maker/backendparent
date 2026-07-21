@@ -13,12 +13,27 @@ import { RouterCommandType } from '@prisma/client';
  * supports are included; an undetected or Guide-Only router yields an
  * empty (never-fabricated) strategy list.
  */
-const STRATEGY_PRIORITY: Array<{ type: RouterCommandType; flag: 'supportsClientDisconnect' | 'supportsPauseDevice' | 'supportsFirewallRules' | 'supportsMACFiltering' | 'supportsDNSChange' }> = [
+type StrategyFlag = 'supportsClientDisconnect' | 'supportsPauseDevice' | 'supportsFirewallRules' | 'supportsMACFiltering' | 'supportsDNSChange';
+
+const STRATEGY_PRIORITY: Array<{ type: RouterCommandType; flag: StrategyFlag }> = [
   { type: 'DISCONNECT_CLIENT', flag: 'supportsClientDisconnect' },
   { type: 'PAUSE_DEVICE', flag: 'supportsPauseDevice' },
   { type: 'APPLY_FIREWALL_RULE', flag: 'supportsFirewallRules' },
   { type: 'BLOCK_MAC', flag: 'supportsMACFiltering' },
   { type: 'CHANGE_DNS', flag: 'supportsDNSChange' },
+];
+
+// Deliberately narrower than STRATEGY_PRIORITY above: excludes
+// DISCONNECT_CLIENT (transient — a kicked-off client can simply
+// reconnect, defeating a *persistent* block) and CHANGE_DNS (this command
+// changes the router's own upstream resolver, i.e. router-wide, not
+// scoped to one device — using it to "block one device" would incorrectly
+// affect every device on that router). Only strategies that genuinely
+// target a single device/MAC/IP belong in a persistent per-device block.
+const BLOCK_STRATEGY_PRIORITY: Array<{ type: RouterCommandType; flag: StrategyFlag }> = [
+  { type: 'PAUSE_DEVICE', flag: 'supportsPauseDevice' },
+  { type: 'APPLY_FIREWALL_RULE', flag: 'supportsFirewallRules' },
+  { type: 'BLOCK_MAC', flag: 'supportsMACFiltering' },
 ];
 
 @Injectable()
@@ -29,17 +44,19 @@ export class SmartBlockEngineService {
     private routerCommandService: RouterCommandService,
   ) {}
 
-  async endGamingSession(parentId: string, gatewayId: string, deviceId: string) {
-    const gateway = await this.prisma.gateway.findUnique({ where: { id: gatewayId } });
-    if (!gateway) throw new NotFoundException('Gateway not found');
-    if (gateway.parentId !== parentId) throw new ForbiddenException('Not your gateway');
+  private buildStrategies(pluginId: string | null, priority: Array<{ type: RouterCommandType; flag: StrategyFlag }>): RouterCommandType[] {
+    return priority.filter(({ flag }) => this.capabilityEngine.isSupported(pluginId, flag)).map(({ type }) => type);
+  }
 
+  private async enqueueStrategyCommand(
+    gatewayId: string,
+    deviceId: string,
+    commandType: RouterCommandType,
+    priority: Array<{ type: RouterCommandType; flag: StrategyFlag }>,
+  ) {
     const router = await this.prisma.detectedRouter.findUnique({ where: { gatewayId } });
     const pluginId = router?.pluginId ?? null;
-
-    const strategies = STRATEGY_PRIORITY.filter(({ flag }) => this.capabilityEngine.isSupported(pluginId, flag)).map(
-      ({ type }) => type,
-    );
+    const strategies = this.buildStrategies(pluginId, priority);
 
     if (strategies.length === 0) {
       return {
@@ -52,13 +69,32 @@ export class SmartBlockEngineService {
       };
     }
 
-    const command = await this.routerCommandService.enqueueCommand(
-      gatewayId,
-      'END_GAMING_SESSION',
-      { deviceId, strategies },
-      deviceId,
-    );
-
+    const command = await this.routerCommandService.enqueueCommand(gatewayId, commandType, { deviceId, strategies }, deviceId);
     return { enqueued: true, commandId: command.id, strategies, reason: null };
+  }
+
+  async endGamingSession(parentId: string, gatewayId: string, deviceId: string) {
+    const gateway = await this.prisma.gateway.findUnique({ where: { id: gatewayId } });
+    if (!gateway) throw new NotFoundException('Gateway not found');
+    if (gateway.parentId !== parentId) throw new ForbiddenException('Not your gateway');
+
+    return this.enqueueStrategyCommand(gatewayId, deviceId, 'END_GAMING_SESSION', STRATEGY_PRIORITY);
+  }
+
+  /**
+   * Internal, service-to-service entry points (no parentId/ownership check
+   * here — callers like EnforcementService have already authorized the
+   * request against the device, including system-initiated blocks with no
+   * parentId at all, e.g. an offline time-limit violation). Enqueues an
+   * explicit router command alongside the existing poll-based
+   * NetworkGatewayAdapter path so a manual block/unblock converges faster
+   * than waiting for the next gateway-agent policy poll.
+   */
+  async syncBlockToRouter(gatewayId: string, deviceId: string) {
+    return this.enqueueStrategyCommand(gatewayId, deviceId, 'BLOCK_DEVICE', BLOCK_STRATEGY_PRIORITY);
+  }
+
+  async syncUnblockToRouter(gatewayId: string, deviceId: string) {
+    return this.enqueueStrategyCommand(gatewayId, deviceId, 'UNBLOCK_DEVICE', BLOCK_STRATEGY_PRIORITY);
   }
 }

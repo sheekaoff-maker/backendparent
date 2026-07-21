@@ -17,11 +17,19 @@ function buildAudit() {
   return { log: jest.fn().mockResolvedValue(undefined) } as any;
 }
 
+function buildSmartBlockEngine() {
+  return {
+    syncBlockToRouter: jest.fn().mockResolvedValue({ enqueued: true, commandId: 'cmd-1', strategies: ['PAUSE_DEVICE'], reason: null }),
+    syncUnblockToRouter: jest.fn().mockResolvedValue({ enqueued: true, commandId: 'cmd-2', strategies: ['PAUSE_DEVICE'], reason: null }),
+  } as any;
+}
+
 function buildService(
   prisma: any,
   dnsPolicyService: any,
   adapterResult: { success: boolean } = { success: true },
   audit: any = buildAudit(),
+  smartBlockEngine: any = buildSmartBlockEngine(),
 ) {
   const adapter = {
     blockDevice: jest.fn().mockResolvedValue({ success: adapterResult.success, message: 'ok' }),
@@ -34,8 +42,18 @@ function buildService(
   // MockAdapter stands in for every ControlMethod here — the test only
   // cares about EnforcementService's own status-write + cache-invalidation
   // wiring, not any individual adapter's real behaviour.
-  const service = new EnforcementService(prisma, adapter as any, adapter as any, adapter as any, adapter as any, adapter as any, dnsPolicyService, audit);
-  return { service, adapter, audit };
+  const service = new EnforcementService(
+    prisma,
+    adapter as any,
+    adapter as any,
+    adapter as any,
+    adapter as any,
+    adapter as any,
+    dnsPolicyService,
+    audit,
+    smartBlockEngine,
+  );
+  return { service, adapter, audit, smartBlockEngine };
 }
 
 const DEVICE = {
@@ -124,5 +142,75 @@ describe('EnforcementService — DNS cache invalidation on block/unblock', () =>
 
     expect(prisma.device.update).toHaveBeenCalledWith({ where: { id: 'dev-1' }, data: { status: 'BLOCKED' } });
     expect(dnsPolicyService.invalidateSourceIps).toHaveBeenCalled();
+  });
+});
+
+describe('EnforcementService — explicit router-command sync on block/unblock', () => {
+  it('enqueues a BLOCK_DEVICE router command and returns the confirmation in result.data.routerSync', async () => {
+    const dnsPolicyService = buildDnsPolicyService();
+    const prisma = buildPrisma(DEVICE);
+    const smartBlockEngine = buildSmartBlockEngine();
+    const { service } = buildService(prisma, dnsPolicyService, { success: true }, buildAudit(), smartBlockEngine);
+
+    const result = await service.blockDevice('dev-1', 'Parent requested', 'parent-1');
+
+    expect(smartBlockEngine.syncBlockToRouter).toHaveBeenCalledWith('gw-1', 'dev-1');
+    expect(result.data?.routerSync).toEqual({
+      attempted: true,
+      enqueued: true,
+      commandId: 'cmd-1',
+      strategies: ['PAUSE_DEVICE'],
+      reason: null,
+    });
+  });
+
+  it('enqueues an UNBLOCK_DEVICE router command on unblock', async () => {
+    const dnsPolicyService = buildDnsPolicyService();
+    const prisma = buildPrisma(DEVICE);
+    const smartBlockEngine = buildSmartBlockEngine();
+    const { service } = buildService(prisma, dnsPolicyService, { success: true }, buildAudit(), smartBlockEngine);
+
+    const result = await service.unblockDevice('dev-1');
+
+    expect(smartBlockEngine.syncUnblockToRouter).toHaveBeenCalledWith('gw-1', 'dev-1');
+    expect(result.data?.routerSync).toEqual({
+      attempted: true,
+      enqueued: true,
+      commandId: 'cmd-2',
+      strategies: ['PAUSE_DEVICE'],
+      reason: null,
+    });
+  });
+
+  it('does not attempt a router sync for a device with no gatewayId, and does not fail the overall call', async () => {
+    const deviceNoGateway = { ...DEVICE, gatewayId: null };
+    const dnsPolicyService = buildDnsPolicyService();
+    const prisma = buildPrisma(deviceNoGateway);
+    const smartBlockEngine = buildSmartBlockEngine();
+    const { service } = buildService(prisma, dnsPolicyService, { success: true }, buildAudit(), smartBlockEngine);
+
+    const result = await service.blockDevice('dev-1', 'Parent requested', 'parent-1');
+
+    expect(smartBlockEngine.syncBlockToRouter).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    expect(result.data?.routerSync).toEqual({ attempted: false, enqueued: false, commandId: null, strategies: [], reason: 'device has no gateway' });
+  });
+
+  it('does not fail the overall block when the router sync itself throws', async () => {
+    const dnsPolicyService = buildDnsPolicyService();
+    const prisma = buildPrisma(DEVICE);
+    const smartBlockEngine = { syncBlockToRouter: jest.fn().mockRejectedValue(new Error('router command queue unavailable')) };
+    const { service } = buildService(prisma, dnsPolicyService, { success: true }, buildAudit(), smartBlockEngine);
+
+    const result = await service.blockDevice('dev-1', 'Parent requested', 'parent-1');
+
+    expect(result.success).toBe(true);
+    expect(result.data?.routerSync).toEqual({
+      attempted: true,
+      enqueued: false,
+      commandId: null,
+      strategies: [],
+      reason: 'router command queue unavailable',
+    });
   });
 });

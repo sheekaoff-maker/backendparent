@@ -394,13 +394,18 @@ model BandwidthLimit {
 }
 
 model VpnDetectionLog {
-  id         String   @id @default(cuid())
-  gatewayId  String   @map("gateway_id")
-  deviceId   String   @map("device_id")
-  provider   String
-  method     String
-  detail     String?
-  detectedAt DateTime @default(now()) @map("detected_at")
+  id                String   @id @default(cuid())
+  gatewayId         String   @map("gateway_id")
+  deviceId          String   @map("device_id")
+  provider          String
+  method            String
+  detail            String?
+  // Per-signal weight (0-100) and the noisy-OR combined per-device score for
+  // this detection cycle — both nullable since older gateway-agent builds
+  // don't send them yet.
+  confidence        Int?     @map("confidence")
+  overallConfidence Int?     @map("overall_confidence")
+  detectedAt        DateTime @default(now()) @map("detected_at")
 
   @@index([deviceId])
   @@index([gatewayId, detectedAt])
@@ -534,6 +539,14 @@ model Gateway {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
+  // Token rotation grace period: the just-rotated-out token stays valid
+  // until previousTokenExpiresAt so an already-running gateway-agent (which
+  // only learns its new token from a policy-poll response, not instantly)
+  // isn't locked out mid-rotation. Both nullable — most gateways have never
+  // rotated.
+  previousToken          String?   @unique @map("previous_token")
+  previousTokenExpiresAt DateTime? @map("previous_token_expires_at")
+
   parent  User     @relation(fields: [parentId], references: [id], onDelete: Cascade)
   devices Device[]
 
@@ -569,6 +582,8 @@ enum RouterCommandType {
   BLOCK_MAC
   UNBLOCK_MAC
   END_GAMING_SESSION
+  BLOCK_DEVICE
+  UNBLOCK_DEVICE
 }
 
 /// Router Integration Engine: the router actually detected on a gateway's

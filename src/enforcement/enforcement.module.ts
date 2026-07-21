@@ -9,9 +9,10 @@ import { MockAdapter } from './adapters/mock.adapter';
 import { QueueModule } from '../queue/queue.module';
 import { DnsPolicyModule } from '../dns-policy/dns-policy.module';
 import { AuditModule } from '../audit/audit.module';
+import { RouterIntegrationModule } from '../router-integration/router-integration.module';
 
 @Module({
-  imports: [QueueModule, DnsPolicyModule, AuditModule],
+  imports: [QueueModule, DnsPolicyModule, AuditModule, RouterIntegrationModule],
   controllers: [EnforcementController],
   providers: [
     EnforcementService,

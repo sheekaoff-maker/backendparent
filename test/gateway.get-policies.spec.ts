@@ -124,3 +124,23 @@ describe('GatewayService.getPolicies bandwidth resolution (Layer 7)', () => {
     expect(result.devices[0].bandwidthLimits).toEqual([]);
   });
 });
+
+describe('GatewayService.getPolicies — self-healing token rotation', () => {
+  it('omits rotatedToken on a normal request (authenticated via the current token)', async () => {
+    const prisma = buildPrisma({ gateway: { findUnique: jest.fn().mockResolvedValue({ id: 'gw-1', token: 'new-tok', devices: [] }) } });
+    const service = new GatewayService(prisma, { log: jest.fn() } as any);
+
+    const result = await service.getPolicies('gw-1');
+
+    expect(result.rotatedToken).toBeUndefined();
+  });
+
+  it('includes the current token as rotatedToken when the request was authenticated via the previous token', async () => {
+    const prisma = buildPrisma({ gateway: { findUnique: jest.fn().mockResolvedValue({ id: 'gw-1', token: 'new-tok', devices: [] }) } });
+    const service = new GatewayService(prisma, { log: jest.fn() } as any);
+
+    const result = await service.getPolicies('gw-1', true);
+
+    expect(result.rotatedToken).toBe('new-tok');
+  });
+});

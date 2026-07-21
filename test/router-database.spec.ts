@@ -3,8 +3,8 @@ import { RouterDatabaseService } from '../src/router-integration/router-database
 describe('RouterDatabaseService', () => {
   const service = new RouterDatabaseService();
 
-  it('lists all 29 vendor rows', () => {
-    expect(service.listVendors()).toHaveLength(29);
+  it('lists all 36 vendor rows', () => {
+    expect(service.listVendors()).toHaveLength(36);
   });
 
   it('returns capabilities for a known pluginId', () => {
@@ -42,6 +42,13 @@ describe('RouterDatabaseService', () => {
       ['Technicolor TG799', 'technicolor'],
       ['Arris SBG10', 'arris'],
       ['Arcadyan VRV9510', 'arcadyan'],
+      ['Keenetic Giga KN-1010', 'keenetic'],
+      ['TOTOLINK A3002RU', 'totolink'],
+      ['Sercomm FAST3890', 'sercomm'],
+      ['Actiontec MI424WR', 'actiontec'],
+      ['Hitron CODA-4680', 'hitron'],
+      ['Comtrend VR-3033', 'comtrend'],
+      ['Nokia G-240W-E', 'nokia_home_gateway'],
     ])('resolves "%s" -> %s', (raw, expected) => {
       expect(service.resolveVendorNameToPluginId(raw)).toBe(expected);
     });

@@ -1,10 +1,10 @@
-import { Controller, Post, Get, Body, Query, UseGuards, Req } from '@nestjs/common';
+import { Controller, Post, Get, Body, Query, Param, UseGuards, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { GatewayService } from './gateway.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { GatewayTokenGuard } from '../common/guards/gateway-token.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { IsString, IsOptional, IsUUID, IsArray, ValidateNested } from 'class-validator';
+import { IsString, IsOptional, IsUUID, IsArray, IsInt, Min, Max, ValidateNested } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 
@@ -86,6 +86,26 @@ class VpnDetectionDto {
   @IsOptional()
   @IsString()
   detail?: string;
+
+  // Per-signal strength (0-100) — see gateway-agent's vpn-patterns.js for
+  // how each is assigned. Optional: older gateway-agent builds don't send
+  // this and detections without it are still recorded.
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  confidence?: number;
+
+  // Noisy-OR combination of every signal that fired for this device this
+  // cycle — see vpn-detector.js's computeConfidence(). Same field on every
+  // detection row for a given device+cycle.
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  overallConfidence?: number;
 }
 
 class VpnDetectionReportDto {
@@ -116,6 +136,19 @@ class DohDetectionDto {
   @IsOptional()
   @IsString()
   detail?: string;
+
+  // Per-signal strength (0-100) — see gateway-agent's doh-detector.js for
+  // how each detection method is weighted. Optional: older gateway-agent
+  // builds don't send this and detections without it are still recorded.
+  // Unlike VpnDetectionDto there is no combined overallConfidence field —
+  // DoH detections are reported and audit-logged independently rather than
+  // aggregated per device-cycle.
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  confidence?: number;
 }
 
 class DohDetectionReportDto {
@@ -187,7 +220,15 @@ export class GatewayController {
   @UseGuards(GatewayTokenGuard)
   @ApiOperation({ summary: 'Get gateway enforcement policies for local firewall agent' })
   async getPolicies(@Req() req: any) {
-    return this.gatewayService.getPolicies(req.gateway.id);
+    return this.gatewayService.getPolicies(req.gateway.id, Boolean(req.usedPreviousToken));
+  }
+
+  @Post(':gatewayId/rotate-token')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Rotate a gateway\'s auth token (old token stays valid for a grace period so a deployed agent is never locked out)' })
+  async rotateToken(@CurrentUser('sub') parentId: string, @Param('gatewayId') gatewayId: string) {
+    return this.gatewayService.rotateToken(parentId, gatewayId);
   }
 
   @Post('discovery')

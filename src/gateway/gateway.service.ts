@@ -48,6 +48,45 @@ export class GatewayService {
     });
   }
 
+  /**
+   * Security incident response (leaked/compromised token) without bricking
+   * an already-deployed gateway-agent: the old token keeps authenticating
+   * for `gracePeriodMs` (default 24h — long enough for a router that only
+   * polls every few seconds to notice within its next cycle, short enough
+   * to bound how long a leaked token stays useful) via
+   * GatewayTokenGuard's previousToken fallback. The running agent picks up
+   * the new token automatically the next time it calls getPolicies() (see
+   * `rotatedToken` below) — no manual re-pairing/reflash needed.
+   */
+  async rotateToken(parentId: string, gatewayId: string, gracePeriodMs = 24 * 60 * 60 * 1000) {
+    const gateway = await this.prisma.gateway.findUnique({ where: { id: gatewayId } });
+    if (!gateway) throw new NotFoundException('Gateway not found');
+    if (gateway.parentId !== parentId) throw new ForbiddenException('Not your gateway');
+
+    const newToken = uuidv4();
+    const previousTokenExpiresAt = new Date(Date.now() + gracePeriodMs);
+
+    const updated = await this.prisma.gateway.update({
+      where: { id: gatewayId },
+      data: {
+        token: newToken,
+        previousToken: gateway.token,
+        previousTokenExpiresAt,
+      },
+    });
+
+    await this.audit.log({
+      userId: parentId,
+      action: 'gateway.token_rotated',
+      entity: 'gateway',
+      entityId: gatewayId,
+      details: JSON.stringify({ previousTokenExpiresAt: previousTokenExpiresAt.toISOString() }),
+    });
+    this.logger.warn(`Gateway ${gatewayId} token rotated by parent ${parentId}; old token valid until ${previousTokenExpiresAt.toISOString()}`);
+
+    return { id: updated.id, token: updated.token, previousTokenExpiresAt: updated.previousTokenExpiresAt };
+  }
+
   async getDiscoveredDevices(gatewayId: string) {
     const gateway = await this.prisma.gateway.findUnique({
       where: { id: gatewayId },
@@ -106,7 +145,7 @@ export class GatewayService {
     };
   }
 
-  async getPolicies(gatewayId: string) {
+  async getPolicies(gatewayId: string, usedPreviousToken = false) {
     const gateway = await this.prisma.gateway.findUnique({
       where: { id: gatewayId },
       include: {
@@ -140,6 +179,12 @@ export class GatewayService {
     return {
       gatewayId: gateway.id,
       generatedAt: new Date().toISOString(),
+      // Self-healing token rotation: only present when this request
+      // authenticated via the previous (rotated-out) token — tells
+      // gateway-agent's policy-sync loop "here's your new token", so it
+      // updates its in-memory config and persists it to .env without any
+      // manual re-pairing. Absent on every normal request.
+      rotatedToken: usedPreviousToken ? gateway.token : undefined,
       dnsRedirect: {
         enabled: true,
         resolverIp: process.env.CONTROLLED_DNS_IP || process.env.DNS_SERVICE_IP || null,
@@ -294,7 +339,14 @@ export class GatewayService {
    */
   async recordVpnDetections(
     gatewayId: string,
-    detections: Array<{ deviceId: string; provider: string; method: string; detail?: string }>,
+    detections: Array<{
+      deviceId: string;
+      provider: string;
+      method: string;
+      detail?: string;
+      confidence?: number;
+      overallConfidence?: number;
+    }>,
   ) {
     if (detections.length === 0) return { recorded: 0 };
 
@@ -317,6 +369,8 @@ export class GatewayService {
           provider: d.provider,
           method: d.method,
           detail: d.detail ?? null,
+          confidence: d.confidence ?? null,
+          overallConfidence: d.overallConfidence ?? null,
         })),
       });
       this.logger.warn(
@@ -339,7 +393,7 @@ export class GatewayService {
    */
   async recordDohDetections(
     gatewayId: string,
-    detections: Array<{ deviceId: string; provider: string; method: string; detail?: string }>,
+    detections: Array<{ deviceId: string; provider: string; method: string; detail?: string; confidence?: number }>,
   ) {
     if (detections.length === 0) return { recorded: 0 };
 
@@ -359,7 +413,12 @@ export class GatewayService {
         action: 'doh_dot_detected',
         entity: 'device',
         entityId: detection.deviceId,
-        details: JSON.stringify({ provider: detection.provider, method: detection.method, detail: detection.detail }),
+        details: JSON.stringify({
+          provider: detection.provider,
+          method: detection.method,
+          detail: detection.detail,
+          confidence: detection.confidence,
+        }),
       });
     }
 
