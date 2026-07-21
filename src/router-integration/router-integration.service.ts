@@ -3,6 +3,7 @@ import { PrismaService } from '../common/prisma.service';
 import { EncryptionService } from '../common/encryption.service';
 import { CapabilityEngineService } from './capability-engine.service';
 import { RouterCommandService } from './router-command.service';
+import { RouterCapabilityScoreService } from './router-capability-score.service';
 import { RouterSetupDto } from './dto/router-integration.dto';
 
 @Injectable()
@@ -12,6 +13,7 @@ export class RouterIntegrationService {
     private encryption: EncryptionService,
     private capabilityEngine: CapabilityEngineService,
     private routerCommandService: RouterCommandService,
+    private capabilityScore: RouterCapabilityScoreService,
   ) {}
 
   private async assertOwnership(parentId: string, gatewayId: string) {
@@ -25,9 +27,10 @@ export class RouterIntegrationService {
     await this.assertOwnership(parentId, gatewayId);
     const router = await this.prisma.detectedRouter.findUnique({ where: { gatewayId } });
     if (!router || !router.pluginId) {
-      return { detected: false, capabilities: null };
+      return { detected: false, capabilities: null, score: this.capabilityScore.computeScore(null) };
     }
-    return { detected: true, capabilities: this.capabilityEngine.getCapabilities(router.pluginId) };
+    const capabilities = this.capabilityEngine.getCapabilities(router.pluginId);
+    return { detected: true, capabilities, score: this.capabilityScore.computeScore(capabilities, router) };
   }
 
   async setup(parentId: string, gatewayId: string, dto: RouterSetupDto) {
@@ -97,7 +100,8 @@ export class RouterIntegrationService {
       }),
       this.routerCommandService.listRecentCommands(gatewayId),
     ]);
-    return { router, recentCommands };
+    const capabilities = router?.pluginId ? this.capabilityEngine.getCapabilities(router.pluginId) : null;
+    return { router, recentCommands, score: this.capabilityScore.computeScore(capabilities, router) };
   }
 
   async changeDns(parentId: string, gatewayId: string, dnsServer: string) {

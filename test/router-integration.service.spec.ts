@@ -1,6 +1,7 @@
 import { RouterIntegrationService } from '../src/router-integration/router-integration.service';
 import { CapabilityEngineService } from '../src/router-integration/capability-engine.service';
 import { RouterDatabaseService } from '../src/router-integration/router-database.service';
+import { RouterCapabilityScoreService } from '../src/router-integration/router-capability-score.service';
 import { NotFoundException, ForbiddenException } from '@nestjs/common';
 
 function buildPrisma(overrides: any = {}) {
@@ -37,8 +38,9 @@ function buildService(overrides: any = {}) {
   const encryption = overrides.encryption ?? buildEncryption();
   const capabilityEngine = overrides.capabilityEngine ?? new CapabilityEngineService(new RouterDatabaseService());
   const routerCommandService = overrides.routerCommandService ?? buildRouterCommandService();
+  const capabilityScore = overrides.capabilityScore ?? new RouterCapabilityScoreService();
   return {
-    service: new RouterIntegrationService(prisma, encryption, capabilityEngine, routerCommandService),
+    service: new RouterIntegrationService(prisma, encryption, capabilityEngine, routerCommandService, capabilityScore),
     prisma,
     encryption,
     routerCommandService,
@@ -60,18 +62,21 @@ describe('RouterIntegrationService ownership checks', () => {
 });
 
 describe('RouterIntegrationService.getFeatures', () => {
-  it('reports detected:false when no router (or no pluginId) is on record', async () => {
+  it('reports detected:false when no router (or no pluginId) is on record, with an UNSUPPORTED score', async () => {
     const { service } = buildService();
-    expect(await service.getFeatures('parent-1', 'gw-1')).toEqual({ detected: false, capabilities: null });
+    const result = await service.getFeatures('parent-1', 'gw-1');
+    expect(result).toEqual({ detected: false, capabilities: null, score: expect.objectContaining({ level: 'UNSUPPORTED' }) });
   });
 
-  it('reports the capability entry for a detected, recognized router', async () => {
+  it('reports the capability entry and a computed score for a detected, recognized router', async () => {
     const { service } = buildService({
       prisma: buildPrisma({ detectedRouter: { findUnique: jest.fn().mockResolvedValue({ pluginId: 'openwrt' }) } }),
     });
     const result = await service.getFeatures('parent-1', 'gw-1');
     expect(result.detected).toBe(true);
     expect(result.capabilities?.protocol).toBe('ubus-JSONRPC');
+    expect(result.score.level).not.toBe('UNSUPPORTED');
+    expect(result.score.score).toBeGreaterThan(0);
   });
 });
 
@@ -142,5 +147,6 @@ describe('RouterIntegrationService action methods enqueue the right command type
     const result = await service.getDiagnostics('parent-1', 'gw-1');
     expect(result.router).toEqual({ pluginId: 'mikrotik' });
     expect(result.recentCommands).toEqual([{ id: 'cmd-1' }]);
+    expect(result.score.score).toBeGreaterThan(0);
   });
 });

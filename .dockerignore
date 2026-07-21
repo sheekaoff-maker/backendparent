@@ -1,0 +1,17 @@
+node_modules
+dist
+coverage
+test
+*.spec.ts
+.env
+.env.*
+!.env.example
+.git
+.gitignore
+*.log
+npm-debug.log*
+.vscode
+.idea
+deploy/STAGING.md
+docker-compose*.yml
+Dockerfile*

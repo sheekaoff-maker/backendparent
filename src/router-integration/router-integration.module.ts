@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AuditModule } from '../audit/audit.module';
 import { RouterDatabaseService } from './router-database.service';
 import { CapabilityEngineService } from './capability-engine.service';
 import { RouterDetectionService } from './router-detection.service';
@@ -8,8 +9,10 @@ import { RouterCommandController } from './router-command.controller';
 import { SmartBlockEngineService } from './smart-block-engine.service';
 import { RouterIntegrationService } from './router-integration.service';
 import { RouterIntegrationController } from './router-integration.controller';
+import { RouterCapabilityScoreService } from './router-capability-score.service';
 
 @Module({
+  imports: [AuditModule],
   controllers: [RouterDetectionController, RouterCommandController, RouterIntegrationController],
   providers: [
     RouterDatabaseService,
@@ -18,7 +21,8 @@ import { RouterIntegrationController } from './router-integration.controller';
     RouterCommandService,
     SmartBlockEngineService,
     RouterIntegrationService,
+    RouterCapabilityScoreService,
   ],
-  exports: [RouterDatabaseService, CapabilityEngineService, RouterCommandService, SmartBlockEngineService],
+  exports: [RouterDatabaseService, CapabilityEngineService, RouterCommandService, SmartBlockEngineService, RouterCapabilityScoreService],
 })
 export class RouterIntegrationModule {}

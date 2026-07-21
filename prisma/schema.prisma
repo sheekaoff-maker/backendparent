@@ -527,17 +527,36 @@ model CommandAck {
   @@map("command_acks")
 }
 
+enum GatewayType {
+  // Runs entirely in software (gateway-agent installed on any Windows/Linux/
+  // macOS host, mini PC, VPS, or Docker container on the home network) —
+  // enforces directly via iptables/nftables/conntrack/DNS-redirect on its own
+  // host. No physical router support required. Default and recommended.
+  SOFTWARE_AGENT
+  // gateway-agent additionally drives a real router's own management API
+  // via the Router Integration Engine plugins (see router-capability.matrix.ts)
+  // — the same gateway-agent binary, plus router credentials configured
+  // through the Router Integration wizard.
+  ROUTER_PLUGIN
+}
+
 model Gateway {
-  id        String    @id @default(uuid())
-  parentId  String    @map("parent_id")
-  name      String
-  token     String    @unique
-  endpoint  String?
-  paired    Boolean   @default(false)
-  pairedAt  DateTime? @map("paired_at")
-  lastSeen  DateTime? @map("last_seen")
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id           String      @id @default(uuid())
+  parentId     String      @map("parent_id")
+  name         String
+  description  String?
+  gatewayType  GatewayType @default(SOFTWARE_AGENT) @map("gateway_type")
+  token        String      @unique
+  endpoint     String?
+  paired       Boolean     @default(false)
+  pairedAt     DateTime?   @map("paired_at")
+  lastSeen     DateTime?   @map("last_seen")
+  // Reported by gateway-agent itself via the x-gateway-agent-version header
+  // on every getPolicies() poll (see GatewayController#getPolicies) — null
+  // until an agent build that sends it has connected at least once.
+  agentVersion String?     @map("agent_version")
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
 
   // Token rotation grace period: the just-rotated-out token stays valid
   // until previousTokenExpiresAt so an already-running gateway-agent (which

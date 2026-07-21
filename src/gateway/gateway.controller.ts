@@ -1,12 +1,13 @@
-import { Controller, Post, Get, Body, Query, Param, UseGuards, Req } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Delete, Body, Query, Param, UseGuards, Req, Headers } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { GatewayService } from './gateway.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { GatewayTokenGuard } from '../common/guards/gateway-token.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { IsString, IsOptional, IsUUID, IsArray, IsInt, Min, Max, ValidateNested } from 'class-validator';
+import { IsString, IsOptional, IsUUID, IsArray, IsInt, IsEnum, Min, Max, ValidateNested } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
+import { GatewayType } from '@prisma/client';
 
 class RegisterGatewayDto {
   @ApiProperty()
@@ -17,6 +18,32 @@ class RegisterGatewayDto {
   @IsOptional()
   @IsString()
   endpoint?: string;
+
+  @ApiPropertyOptional({
+    enum: GatewayType,
+    default: GatewayType.SOFTWARE_AGENT,
+    description: 'SOFTWARE_AGENT (default, recommended): gateway-agent enforces on its own host, no router required. ROUTER_PLUGIN: gateway-agent drives a real router via the Router Integration Engine.',
+  })
+  @IsOptional()
+  @IsEnum(GatewayType)
+  gatewayType?: GatewayType;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  description?: string;
+}
+
+class RenameGatewayDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  description?: string;
 }
 
 class PairGatewayDto {
@@ -175,9 +202,29 @@ export class GatewayController {
   @Post('register')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Register a new gateway' })
+  @ApiOperation({ summary: 'Register a new gateway (Software Agent by default, or Router Plugin)' })
   async register(@CurrentUser('sub') parentId: string, @Body() dto: RegisterGatewayDto) {
-    return this.gatewayService.register(parentId, dto.name, dto.endpoint);
+    return this.gatewayService.register(parentId, dto.name, dto.endpoint, dto.gatewayType, dto.description);
+  }
+
+  @Patch(':gatewayId')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Rename a gateway / update its description' })
+  async rename(
+    @CurrentUser('sub') parentId: string,
+    @Param('gatewayId') gatewayId: string,
+    @Body() dto: RenameGatewayDto,
+  ) {
+    return this.gatewayService.renameGateway(parentId, gatewayId, dto.name, dto.description);
+  }
+
+  @Delete(':gatewayId')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Delete a gateway (detaches its devices, does not delete them)' })
+  async remove(@CurrentUser('sub') parentId: string, @Param('gatewayId') gatewayId: string) {
+    return this.gatewayService.deleteGateway(parentId, gatewayId);
   }
 
   @Post('pair')
@@ -219,8 +266,8 @@ export class GatewayController {
   @Get('policies')
   @UseGuards(GatewayTokenGuard)
   @ApiOperation({ summary: 'Get gateway enforcement policies for local firewall agent' })
-  async getPolicies(@Req() req: any) {
-    return this.gatewayService.getPolicies(req.gateway.id, Boolean(req.usedPreviousToken));
+  async getPolicies(@Req() req: any, @Headers('x-gateway-agent-version') agentVersion?: string) {
+    return this.gatewayService.getPolicies(req.gateway.id, Boolean(req.usedPreviousToken), agentVersion);
   }
 
   @Post(':gatewayId/rotate-token')

@@ -4,6 +4,7 @@ import { redisStore } from 'cache-manager-redis-yet';
 import { getRedisConfig, getRedisCacheSocketOptions } from '../common/redis-config';
 import { DeviceHealthController } from './device-health.controller';
 import { DeviceHealthService } from './device-health.service';
+import { NetworkHealthService } from './network-health.service';
 
 @Module({
   imports: [
@@ -22,7 +23,7 @@ import { DeviceHealthService } from './device-health.service';
     }),
   ],
   controllers: [DeviceHealthController],
-  providers: [DeviceHealthService],
-  exports: [DeviceHealthService],
+  providers: [DeviceHealthService, NetworkHealthService],
+  exports: [DeviceHealthService, NetworkHealthService],
 })
 export class DeviceHealthModule {}

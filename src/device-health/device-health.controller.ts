@@ -3,13 +3,26 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { DeviceHealthService } from './device-health.service';
+import { NetworkHealthService } from './network-health.service';
 
 @ApiTags('Device Health')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 @Controller('device-health')
 export class DeviceHealthController {
-  constructor(private readonly service: DeviceHealthService) {}
+  constructor(
+    private readonly service: DeviceHealthService,
+    private readonly networkHealth: NetworkHealthService,
+  ) {}
+
+  @Get('network')
+  @ApiOperation({
+    summary:
+      'Network Health Score — household-wide rollup (router/DNS/plugin/security/stability), for the Dashboard.',
+  })
+  network(@CurrentUser('sub') parentId: string) {
+    return this.networkHealth.getSummary(parentId);
+  }
 
   @Get()
   @ApiOperation({

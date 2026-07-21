@@ -34,6 +34,30 @@ function device(overrides: any = {}) {
   };
 }
 
+describe('GatewayService.getPolicies agent version reporting', () => {
+  it('stamps lastSeen and the reported agentVersion on the gateway row', async () => {
+    const prisma = buildPrisma({ gateway: { findUnique: jest.fn().mockResolvedValue({ id: 'gw-1', devices: [] }) } });
+    const service = new GatewayService(prisma, { log: jest.fn() } as any);
+
+    await service.getPolicies('gw-1', false, '1.2.3');
+
+    expect(prisma.gateway.update).toHaveBeenCalledWith({
+      where: { id: 'gw-1' },
+      data: expect.objectContaining({ agentVersion: '1.2.3' }),
+    });
+  });
+
+  it('does not overwrite agentVersion when the request omits the header (older agent build)', async () => {
+    const prisma = buildPrisma({ gateway: { findUnique: jest.fn().mockResolvedValue({ id: 'gw-1', devices: [] }) } });
+    const service = new GatewayService(prisma, { log: jest.fn() } as any);
+
+    await service.getPolicies('gw-1');
+
+    const updateArg = prisma.gateway.update.mock.calls[0][0];
+    expect(updateArg.data.agentVersion).toBeUndefined();
+  });
+});
+
 describe('GatewayService.getPolicies bandwidth resolution (Layer 7)', () => {
   it('returns an empty bandwidthLimits array when none apply', async () => {
     const prisma = buildPrisma({ gateway: { findUnique: jest.fn().mockResolvedValue({ id: 'gw-1', devices: [device()] }) } });

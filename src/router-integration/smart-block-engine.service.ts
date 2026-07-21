@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/commo
 import { PrismaService } from '../common/prisma.service';
 import { CapabilityEngineService } from './capability-engine.service';
 import { RouterCommandService } from './router-command.service';
+import { AuditService } from '../audit/audit.service';
 import { RouterCommandType } from '@prisma/client';
 
 /**
@@ -42,12 +43,22 @@ export class SmartBlockEngineService {
     private prisma: PrismaService,
     private capabilityEngine: CapabilityEngineService,
     private routerCommandService: RouterCommandService,
+    private audit: AuditService,
   ) {}
 
   private buildStrategies(pluginId: string | null, priority: Array<{ type: RouterCommandType; flag: StrategyFlag }>): RouterCommandType[] {
     return priority.filter(({ flag }) => this.capabilityEngine.isSupported(pluginId, flag)).map(({ type }) => type);
   }
 
+  /**
+   * Every capability in `priority` is attempted in order and recorded in
+   * the audit trail — which ones were supported/skipped, and which one (if
+   * any) was ultimately chosen — so "why did GuardTime pick this action"
+   * is always answerable after the fact, not just in the moment. This
+   * never throws on a single unavailable capability: only when the ENTIRE
+   * priority list comes up empty does it report `enqueued: false` with a
+   * clear, specific reason (never a generic error).
+   */
   private async enqueueStrategyCommand(
     gatewayId: string,
     deviceId: string,
@@ -56,21 +67,49 @@ export class SmartBlockEngineService {
   ) {
     const router = await this.prisma.detectedRouter.findUnique({ where: { gatewayId } });
     const pluginId = router?.pluginId ?? null;
-    const strategies = this.buildStrategies(pluginId, priority);
+
+    const attempts = priority.map(({ type, flag }) => ({
+      capability: type,
+      supported: this.capabilityEngine.isSupported(pluginId, flag),
+    }));
+    const strategies = attempts.filter((attempt) => attempt.supported).map((attempt) => attempt.capability);
 
     if (strategies.length === 0) {
-      return {
-        enqueued: false,
-        commandId: null,
-        strategies: [],
-        reason: router?.pluginId
-          ? 'This router has no supported control strategy (Guide Only) — see Supported Features for manual instructions.'
-          : 'No router has been detected on this gateway yet.',
-      };
+      const reason = router?.pluginId
+        ? 'This router has no supported control strategy (Guide Only) — see Supported Features for manual instructions.'
+        : 'No router has been detected on this gateway yet.';
+
+      await this.logFallbackAudit(gatewayId, deviceId, commandType, attempts, null, 'UNSUPPORTED', reason);
+      return { enqueued: false, commandId: null, strategies: [], reason };
     }
 
     const command = await this.routerCommandService.enqueueCommand(gatewayId, commandType, { deviceId, strategies }, deviceId);
+    await this.logFallbackAudit(gatewayId, deviceId, commandType, attempts, strategies[0], 'EXECUTED', null);
     return { enqueued: true, commandId: command.id, strategies, reason: null };
+  }
+
+  private async logFallbackAudit(
+    gatewayId: string,
+    deviceId: string,
+    requestedAction: RouterCommandType,
+    attempts: Array<{ capability: RouterCommandType; supported: boolean }>,
+    chosen: RouterCommandType | null,
+    outcome: 'EXECUTED' | 'UNSUPPORTED',
+    reason: string | null,
+  ) {
+    await this.audit.log({
+      action: 'enforcement_engine.capability_fallback',
+      entity: 'device',
+      entityId: deviceId,
+      details: JSON.stringify({
+        gatewayId,
+        requestedAction,
+        attempts: attempts.map((a) => `${a.capability}:${a.supported ? 'supported' : 'unavailable'}`),
+        chosen,
+        outcome,
+        reason,
+      }),
+    });
   }
 
   async endGamingSession(parentId: string, gatewayId: string, deviceId: string) {

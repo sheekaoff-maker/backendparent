@@ -3,6 +3,7 @@ import { PrismaService } from '../common/prisma.service';
 import { v4 as uuidv4 } from 'uuid';
 import { computeFingerprintHash } from './device-fingerprint.util';
 import { AuditService } from '../audit/audit.service';
+import { GatewayType } from '@prisma/client';
 
 export interface DiscoveredDevice {
   ipAddress: string;
@@ -22,19 +23,130 @@ export class GatewayService {
     private audit: AuditService,
   ) {}
 
-  /** Parent-facing: which gateways they own, so Flutter can pick one to operate against (e.g. Router Integration). */
+  // An agent polling every POLL_INTERVAL_MS (default 3s, see gateway-agent's
+  // config.js) that hasn't been seen in this long is treated as offline —
+  // generous enough to absorb a transient hiccup/backoff, tight enough that
+  // "Online" in the UI means something.
+  private static readonly ONLINE_THRESHOLD_MS = 60 * 1000;
+
+  /**
+   * Parent-facing: every gateway they own, enriched with everything the
+   * Gateway Dashboard card needs in one round trip — real, currently-tracked
+   * data only (no fabricated "bandwidth"/"firewall status" numbers this
+   * schema doesn't actually record).
+   */
   async listGateways(parentId: string) {
-    return this.prisma.gateway.findMany({
+    const gateways = await this.prisma.gateway.findMany({
       where: { parentId },
-      select: { id: true, name: true, endpoint: true, paired: true, pairedAt: true, lastSeen: true, createdAt: true },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        gatewayType: true,
+        endpoint: true,
+        paired: true,
+        pairedAt: true,
+        lastSeen: true,
+        agentVersion: true,
+        createdAt: true,
+      },
       orderBy: { createdAt: 'asc' },
+    });
+
+    const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const now = Date.now();
+
+    return Promise.all(
+      gateways.map(async (gateway) => {
+        const deviceRows = await this.prisma.device.findMany({
+          where: { gatewayId: gateway.id },
+          select: { id: true },
+        });
+        const deviceIds = deviceRows.map((d) => d.id);
+
+        const [detectedRouter, vpnDetectionCount24h, dohDetectionCount24h] = await Promise.all([
+          this.prisma.detectedRouter.findUnique({
+            where: { gatewayId: gateway.id },
+            select: { vendor: true, model: true, integrationStatus: true, pluginId: true },
+          }),
+          this.prisma.vpnDetectionLog.count({
+            where: { gatewayId: gateway.id, detectedAt: { gte: since24h } },
+          }),
+          deviceIds.length > 0
+            ? this.prisma.auditLog.count({
+                where: { action: 'doh_dot_detected', entityId: { in: deviceIds }, createdAt: { gte: since24h } },
+              })
+            : Promise.resolve(0),
+        ]);
+
+        return {
+          ...gateway,
+          online: !!gateway.lastSeen && now - gateway.lastSeen.getTime() <= GatewayService.ONLINE_THRESHOLD_MS,
+          deviceCount: deviceIds.length,
+          detectedRouter,
+          vpnDetectionCount24h,
+          dohDetectionCount24h,
+        };
+      }),
+    );
+  }
+
+  /** Rename/re-describe a gateway — cosmetic only, no effect on its token or enforcement. */
+  async renameGateway(parentId: string, gatewayId: string, name?: string, description?: string) {
+    const gateway = await this.prisma.gateway.findUnique({ where: { id: gatewayId } });
+    if (!gateway) throw new NotFoundException('Gateway not found');
+    if (gateway.parentId !== parentId) throw new ForbiddenException('Not your gateway');
+
+    return this.prisma.gateway.update({
+      where: { id: gatewayId },
+      data: {
+        ...(name !== undefined ? { name } : {}),
+        ...(description !== undefined ? { description } : {}),
+      },
     });
   }
 
-  async register(parentId: string, name: string, endpoint?: string) {
+  /**
+   * Removing a gateway never removes the devices it discovered — they keep
+   * whatever DNS-based pairing/enforcement they already have independent of
+   * any gateway (see PairingSession) — it just detaches them (gatewayId ->
+   * null) and drops gateway-scoped rows (DetectedRouter, RouterCommand,
+   * VpnDetectionLog) that are meaningless without the gateway they belong to.
+   */
+  async deleteGateway(parentId: string, gatewayId: string) {
+    const gateway = await this.prisma.gateway.findUnique({ where: { id: gatewayId } });
+    if (!gateway) throw new NotFoundException('Gateway not found');
+    if (gateway.parentId !== parentId) throw new ForbiddenException('Not your gateway');
+
+    await this.prisma.$transaction([
+      this.prisma.device.updateMany({ where: { gatewayId }, data: { gatewayId: null } }),
+      this.prisma.detectedRouter.deleteMany({ where: { gatewayId } }),
+      this.prisma.routerCommand.deleteMany({ where: { gatewayId } }),
+      this.prisma.vpnDetectionLog.deleteMany({ where: { gatewayId } }),
+      this.prisma.gateway.delete({ where: { id: gatewayId } }),
+    ]);
+
+    return { deleted: true };
+  }
+
+  async register(
+    parentId: string,
+    name: string,
+    endpoint?: string,
+    gatewayType: GatewayType = GatewayType.SOFTWARE_AGENT,
+    description?: string,
+  ) {
     const token = uuidv4();
+    // paired:true at creation — this endpoint is JWT-authenticated (only the
+    // owning parent can call it) and the token is server-generated, so the
+    // authorization event already happened by the time we get here. Setting
+    // paired:false here would be a real bug: GatewayTokenGuard hard-rejects
+    // any unpaired gateway (see gateway-token.guard.ts), and nothing else in
+    // this codebase ever calls pair() automatically — a freshly registered
+    // gateway would be permanently unable to authenticate once the agent
+    // tries to connect with its brand-new token.
     return this.prisma.gateway.create({
-      data: { parentId, name, token, endpoint },
+      data: { parentId, name, token, endpoint, gatewayType, description, paired: true, pairedAt: new Date() },
     });
   }
 
@@ -145,7 +257,7 @@ export class GatewayService {
     };
   }
 
-  async getPolicies(gatewayId: string, usedPreviousToken = false) {
+  async getPolicies(gatewayId: string, usedPreviousToken = false, agentVersion?: string) {
     const gateway = await this.prisma.gateway.findUnique({
       where: { id: gatewayId },
       include: {
@@ -172,7 +284,7 @@ export class GatewayService {
     });
     if (!gateway) throw new NotFoundException('Gateway not found');
 
-    await this.updateLastSeen(gatewayId).catch(() => null);
+    await this.updateLastSeen(gatewayId, agentVersion).catch(() => null);
 
     const bandwidthLimits = await this.loadBandwidthLimits(gateway.devices);
 
@@ -437,10 +549,13 @@ export class GatewayService {
     return this.prisma.gateway.findUnique({ where: { token } });
   }
 
-  async updateLastSeen(gatewayId: string) {
+  async updateLastSeen(gatewayId: string, agentVersion?: string) {
     return this.prisma.gateway.update({
       where: { id: gatewayId },
-      data: { lastSeen: new Date() },
+      // agentVersion is only ever set (never cleared) here — an older agent
+      // build that doesn't send the header shouldn't wipe out a version a
+      // newer build previously reported.
+      data: { lastSeen: new Date(), ...(agentVersion ? { agentVersion } : {}) },
     });
   }
 }
